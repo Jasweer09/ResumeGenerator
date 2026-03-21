@@ -14,7 +14,7 @@ from app.schemas.ats_models import (
     OptimizeResumeResponse,
     ATSPlatform,
 )
-from app.services import ats_detector, ats_scorer
+from app.services import ats_detector, ats_optimizer, ats_scorer
 from app.database import db
 
 logger = logging.getLogger(__name__)
@@ -130,14 +130,10 @@ async def optimize_resume(request: OptimizeResumeRequest):
 
     Full optimization pipeline:
     1. Detect ATS platform (if not specified)
-    2. Generate optimized resume
+    2. Generate optimized resume with platform-specific prompts
     3. Score across all platforms
-    4. Refine if needed (adaptive threshold)
-    5. Return final resume + scores
-
-    NOTE: This is a placeholder endpoint. Full optimization with
-    platform-specific prompts and refinement loop will be implemented
-    in the next iteration.
+    4. Adaptive refinement if needed (smart iteration control)
+    5. Return final resume + multi-platform scores + analysis
     """
     try:
         # Get master resume
@@ -145,24 +141,66 @@ async def optimize_resume(request: OptimizeResumeRequest):
         if not resume_record:
             raise HTTPException(status_code=404, detail="Resume not found")
 
-        # For now, return a placeholder response
-        # TODO: Implement full optimization pipeline with:
-        # - Platform-specific prompts
-        # - LLM generation
-        # - Adaptive refinement
-        # - Cover letter/outreach generation
+        resume_data = resume_record.get("processed_data")
+        resume_markdown = resume_record.get("content", "")
+
+        if not resume_data:
+            raise HTTPException(
+                status_code=400,
+                detail="Resume must be processed before optimization",
+            )
+
+        # Run full optimization pipeline
+        result = await ats_optimizer.optimize_resume_for_platform(
+            resume_data=resume_data,
+            resume_markdown=resume_markdown,
+            job_description=request.job_description,
+            target_platform=request.target_platform,
+            job_url=request.job_url,
+            company_name=request.company_name,
+            language=request.language,
+            max_iterations=request.max_refinement_iterations,
+            score_threshold=request.score_threshold,
+        )
+
+        # Save optimized resume to database
+        optimized_resume_id = db.create_resume(
+            content=resume_markdown,  # Keep original markdown, processed_data has optimized version
+            content_type="text/markdown",
+            filename=f"{resume_record.get('filename', 'resume')}_optimized_{result.target_platform.value}.md",
+            is_master=False,
+            processed_data=result.resume_data,
+        )
+
+        # Update result with new resume ID
+        result.resume_id = optimized_resume_id
+
+        # Store ATS optimization metadata
+        if optimized_resume_id:
+            db.update_resume(
+                optimized_resume_id,
+                {
+                    "ats_optimization": {
+                        "target_platform": result.target_platform.value,
+                        "detected_platform": result.detected_platform.model_dump() if result.detected_platform else None,
+                        "final_scores": result.final_scores.model_dump(),
+                        "refinement_iterations": len(result.refinement_iterations),
+                        "optimization_timestamp": datetime.utcnow().isoformat(),
+                    }
+                },
+            )
 
         return OptimizeResumeResponse(
-            success=False,
-            result=None,
-            error="Full optimization pipeline not yet implemented. Use /score endpoint to score existing resumes.",
+            success=True,
+            result=result,
+            error=None,
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Resume optimization failed: {e}")
+        logger.error(f"Resume optimization failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail="Resume optimization failed. Please try again.",
+            detail=f"Resume optimization failed: {str(e)}",
         )
