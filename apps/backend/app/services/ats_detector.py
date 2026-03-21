@@ -14,7 +14,7 @@ from app.schemas.ats_models import (
 logger = logging.getLogger(__name__)
 
 # Load company database
-_DB_PATH = Path(__file__).parent.parent / "data" / "ats_companies.json"
+_DB_PATH = Path(__file__).parent.parent.parent / "data" / "ats_companies.json"
 _COMPANY_DB: dict[str, Any] = {}
 _URL_PATTERNS: dict[str, str] = {}
 
