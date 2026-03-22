@@ -148,6 +148,9 @@ async def parse_document(content: bytes, filename: str) -> str:
 async def parse_resume_to_json(markdown_text: str) -> dict[str, Any]:
     """Parse resume markdown to structured JSON using LLM.
 
+    GOD-MODE: Automatically adjusts token limit based on resume length.
+    Handles 1-page to 10-page resumes without truncation.
+
     After LLM parsing, patches any year-only dates with month-inclusive
     dates extracted from the raw markdown. This ensures months are never
     lost regardless of LLM behavior.
@@ -158,19 +161,65 @@ async def parse_resume_to_json(markdown_text: str) -> dict[str, Any]:
     Returns:
         Structured resume data matching ResumeData schema
     """
+    # DYNAMIC TOKEN ALLOCATION (God-mode: adapts to resume size)
+    # Estimate: JSON is ~1.5x markdown size, 1 token ≈ 4 chars
+    input_chars = len(markdown_text)
+    estimated_output_tokens = int((input_chars * 1.5) / 4)
+
+    # Add 50% buffer for safety
+    needed_tokens = int(estimated_output_tokens * 1.5)
+
+    # Cap at reasonable maximum (Claude Haiku supports up to 200K output)
+    max_tokens = min(max(needed_tokens, 4096), 32768)
+
+    logger.info(
+        f"Resume length: {input_chars} chars, "
+        f"estimated output: {estimated_output_tokens} tokens, "
+        f"using max_tokens: {max_tokens}"
+    )
+
     prompt = PARSE_RESUME_PROMPT.format(
         schema=RESUME_SCHEMA_EXAMPLE,
         resume_text=markdown_text,
     )
 
-    result = await complete_json(
-        prompt=prompt,
-        system_prompt="You are a JSON extraction engine. Output only valid JSON, no explanations.",
-        max_tokens=8192,  # Increased for comprehensive resumes (was 4096 default)
-    )
+    # First attempt with calculated token limit
+    try:
+        result = await complete_json(
+            prompt=prompt,
+            system_prompt="You are a JSON extraction engine. Output only valid JSON, no explanations.",
+            max_tokens=max_tokens,
+        )
 
-    # Patch dates: restore months the LLM may have dropped
-    result = restore_dates_from_markdown(result, markdown_text)
+        # Validate we got actual data
+        if not result or len(result) == 0:
+            raise ValueError("LLM returned empty result")
+
+        # Patch dates: restore months the LLM may have dropped
+        result = restore_dates_from_markdown(result, markdown_text)
+        return result
+
+    except Exception as e:
+        # EDGE CASE: If still truncated or failed, try with maximum tokens
+        if "truncation" in str(e).lower() or "incomplete" in str(e).lower():
+            logger.warning(
+                f"Parsing truncated at {max_tokens} tokens, retrying with 32768..."
+            )
+            try:
+                result = await complete_json(
+                    prompt=prompt,
+                    system_prompt="You are a JSON extraction engine. Output only valid JSON.",
+                    max_tokens=32768,  # Maximum for comprehensive resumes
+                )
+
+                if result and len(result) > 0:
+                    result = restore_dates_from_markdown(result, markdown_text)
+                    return result
+            except Exception as retry_error:
+                logger.error(f"Retry with 32768 tokens also failed: {retry_error}")
+
+        # Final fallback: return error to caller
+        raise
 
 
 async def extract_and_cache_resume_keywords(
