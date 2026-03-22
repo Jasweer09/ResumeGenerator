@@ -170,11 +170,13 @@ def generate_scoring_aware_prompt(
     else:
         resume_input = original_resume
 
-    # Format skills with variations
-    skills_section = "CRITICAL SKILLS TO INCLUDE:\n\n"
-    for canonical, variations in list(jd_skills_with_variations.items())[:25]:  # Top 25 skills
-        variations_str = ", ".join(sorted(variations)[:5])  # Top 5 variations
-        skills_section += f"• {canonical.upper()} (variations: {variations_str})\n"
+    # Format ALL skills with variations (don't limit - need comprehensive coverage!)
+    skills_section = "CRITICAL SKILLS TO INCLUDE (ALL REQUIRED):\n\n"
+    for canonical, variations in jd_skills_with_variations.items():  # ALL skills, not limited!
+        variations_str = ", ".join(sorted(variations)[:3])  # Top 3 variations per skill (compact)
+        skills_section += f"• {canonical.upper()}: {variations_str}\n"
+
+    skills_section += f"\nTotal: {len(jd_skills_with_variations)} skills required. Include as many as truthfully applicable.\n"
 
     # Get platform-specific scoring explanation
     if platform == ATSPlatform.TALEO:
