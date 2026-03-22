@@ -51,33 +51,41 @@ async def extract_keywords_with_variations(text: str, context: str = "job descri
     if not text or len(text) < 20:
         return {}
 
-    prompt = f"""Extract the top 40 most important technical skills, technologies, tools, frameworks,
-programming languages, and certifications from this {context}.
+    prompt = f"""Extract ALL technical skills, technologies, tools, frameworks, programming languages,
+certifications, and methodologies from this {context}.
 
 For EACH skill, provide the canonical name and 2-3 common variations.
 
 RULES:
-1. Extract ONLY actual skills and technologies
-2. DO NOT extract: "ability", "experience", "team", "work", "years", "must have"
-3. Focus on: programming languages, frameworks, tools, cloud platforms, methodologies
-4. For each skill, include only the MOST common variations (max 3)
-   - Example: Kubernetes → ["Kubernetes", "K8s"]
-   - Example: JavaScript → ["JavaScript", "JS"]
+1. Extract ALL skills and technologies mentioned (don't limit quantity)
+2. DO NOT extract: "ability", "experience", "team", "work", "years", "must have", "days", "office"
+3. Include: programming languages, frameworks, tools, cloud platforms, methodologies, AI/ML terms
+4. For each skill, include 2-3 MOST common variations:
+   - Kubernetes → ["Kubernetes", "K8s", "container orchestration"]
+   - JavaScript → ["JavaScript", "JS", "ECMAScript"]
+   - Gen AI → ["Gen AI", "GenAI", "Generative AI"]
+
+CRITICAL - Extract these if present:
+- AI/ML terms: AI, GenAI, Gen AI, Artificial Intelligence, Agentic AI, AI Agents
+- Frameworks: LangChain, LangGraph, LangSmith, etc.
+- All programming languages: Python, Java, Go, C++, etc.
+- All cloud platforms: AWS, Azure, GCP
+- ALL technologies mentioned in {context}
 
 TEXT TO ANALYZE:
-{text[:4000]}
+{text[:5000]}
 
-Return ONLY valid JSON. Keep it concise - canonical name + max 3 variations per skill.
+Return valid JSON with ALL skills found (aim for 50-80 skills for comprehensive extraction).
 Format:
 {{
   "skills": [
     {{"canonical": "Python", "variations": ["Python", "Py"]}},
-    {{"canonical": "Kubernetes", "variations": ["Kubernetes", "K8s", "K8"]}},
-    {{"canonical": "Machine Learning", "variations": ["Machine Learning", "ML"]}}
+    {{"canonical": "Gen AI", "variations": ["Gen AI", "GenAI", "Generative AI"]}},
+    {{"canonical": "LangChain", "variations": ["LangChain", "Lang Chain"]}}
   ]
 }}
 
-IMPORTANT: Return EXACTLY 40 skills max to avoid truncation. Focus on most critical skills.
+Extract COMPREHENSIVELY - don't limit to 40. Get ALL skills!
 """
 
     try:
