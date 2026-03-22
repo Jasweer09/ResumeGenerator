@@ -20,6 +20,8 @@ import { Loader2, ArrowLeft, AlertTriangle, Settings } from 'lucide-react';
 import { useTranslations } from '@/lib/i18n';
 import { DiffPreviewModal } from '@/components/tailor/diff-preview-modal';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { PlatformSelector } from '@/components/ats/PlatformSelector';
+import { detectATSPlatform, optimizeResumeForATS, type PlatformDetection } from '@/lib/api/ats';
 
 export default function TailorPage() {
   const { t } = useTranslations();
@@ -32,6 +34,13 @@ export default function TailorPage() {
   const [promptLoading, setPromptLoading] = useState(false);
   const hasUserSelectedPrompt = useRef(false);
   const missingDiffConfirmInFlight = useRef(false);
+
+  // ATS Optimization state
+  const [enableATS, setEnableATS] = useState(true); // Default to ATS optimization (god mode)
+  const [selectedPlatform, setSelectedPlatform] = useState('auto');
+  const [detectedPlatform, setDetectedPlatform] = useState<PlatformDetection | undefined>();
+  const [jobUrl, setJobUrl] = useState('');
+  const [companyName, setCompanyName] = useState('');
 
   // Diff preview modal state
   const [showDiffModal, setShowDiffModal] = useState(false);
@@ -63,6 +72,37 @@ export default function TailorPage() {
       setMasterResumeId(storedId);
     }
   }, [router]);
+
+  // Auto-detect ATS platform when job details change
+  useEffect(() => {
+    if (!enableATS || (!jobDescription.trim() && !jobUrl.trim())) {
+      setDetectedPlatform(undefined);
+      return;
+    }
+
+    const detectPlatform = async () => {
+      try {
+        const response = await detectATSPlatform({
+          job_description: jobDescription || 'Auto-detection',
+          job_url: jobUrl || undefined,
+          company_name: companyName || undefined,
+        });
+
+        setDetectedPlatform(response.detection);
+
+        // Auto-select detected platform if user hasn't manually chosen
+        if (selectedPlatform === 'auto') {
+          setSelectedPlatform(response.detection.platform);
+        }
+      } catch (err) {
+        console.error('Platform detection failed:', err);
+      }
+    };
+
+    // Debounce detection
+    const timeoutId = setTimeout(detectPlatform, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [jobDescription, jobUrl, companyName, enableATS, selectedPlatform]);
 
   useEffect(() => {
     let cancelled = false;
@@ -194,6 +234,50 @@ export default function TailorPage() {
     }
   };
 
+  const runATSGenerate = async (resumeId: string, description: string) => {
+    try {
+      // Call ATS optimization endpoint
+      const result = await optimizeResumeForATS({
+        resume_id: resumeId,
+        job_description: description,
+        job_url: jobUrl || undefined,
+        company_name: companyName || undefined,
+        target_platform: selectedPlatform === 'auto' ? undefined : selectedPlatform,
+        language: 'en',
+        enable_cover_letter: true,
+        max_refinement_iterations: 2,
+        score_threshold: 85.0,
+      });
+
+      if (!result.success || !result.result) {
+        throw new Error(result.error || 'ATS optimization failed');
+      }
+
+      // Navigate directly to the optimized resume
+      incrementResumes();
+      router.push(`/resumes/${result.result.resume_id}`);
+
+    } catch (err) {
+      console.error(err);
+      const errorMessage = err instanceof Error ? err.message : '';
+      if (
+        errorMessage.toLowerCase().includes('api key') ||
+        errorMessage.toLowerCase().includes('unauthorized') ||
+        errorMessage.toLowerCase().includes('authentication') ||
+        errorMessage.includes('401')
+      ) {
+        setError(t('tailor.errors.apiKeyError'));
+      } else if (
+        errorMessage.toLowerCase().includes('rate limit') ||
+        errorMessage.includes('429')
+      ) {
+        setError(t('tailor.errors.rateLimit'));
+      } else {
+        setError('ATS optimization failed. ' + errorMessage);
+      }
+    }
+  };
+
   const handleGenerate = async () => {
     const trimmedDescription = jobDescription.trim();
     if (!trimmedDescription || !masterResumeId) return;
@@ -206,7 +290,13 @@ export default function TailorPage() {
     setIsLoading(true);
     setError(null);
     try {
-      await runGenerate(resumeId, trimmedDescription);
+      if (enableATS) {
+        // Use ATS optimization (god mode)
+        await runATSGenerate(resumeId, trimmedDescription);
+      } else {
+        // Use standard tailoring
+        await runGenerate(resumeId, trimmedDescription);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -348,41 +438,109 @@ export default function TailorPage() {
         )}
 
         <div className="space-y-6">
-          <Dropdown
-            options={
-              promptOptions.length > 0
-                ? promptOptions.map((opt) => ({
-                    id: opt.id,
-                    label: t(`tailor.promptOptions.${opt.id}.label`),
-                    description: t(`tailor.promptOptions.${opt.id}.description`),
-                  }))
-                : [
-                    {
-                      id: 'nudge',
-                      label: t('tailor.promptOptions.nudge.label'),
-                      description: t('tailor.promptOptions.nudge.description'),
-                    },
-                    {
-                      id: 'keywords',
-                      label: t('tailor.promptOptions.keywords.label'),
-                      description: t('tailor.promptOptions.keywords.description'),
-                    },
-                    {
-                      id: 'full',
-                      label: t('tailor.promptOptions.full.label'),
-                      description: t('tailor.promptOptions.full.description'),
-                    },
-                  ]
-            }
-            value={selectedPromptId}
-            onChange={(value) => {
-              hasUserSelectedPrompt.current = true;
-              setSelectedPromptId(value);
-            }}
-            label={t('tailor.promptLabel')}
-            description={t('tailor.promptDescription')}
-            disabled={isLoading || promptLoading}
-          />
+          {/* ATS Optimization Toggle */}
+          <div className="border-2 border-green-700 bg-green-50 p-4 rounded-none">
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                id="enable-ats"
+                checked={enableATS}
+                onChange={(e) => setEnableATS(e.target.checked)}
+                className="mt-1 w-4 h-4 border-2 border-black rounded-none focus:ring-2 focus:ring-green-700"
+                disabled={isLoading}
+              />
+              <div className="flex-1">
+                <label htmlFor="enable-ats" className="font-mono text-sm font-bold cursor-pointer">
+                  🎯 ATS OPTIMIZATION (RECOMMENDED)
+                </label>
+                <p className="font-mono text-xs text-gray-700 mt-1">
+                  Platform-specific optimization for 6 major ATS systems. Scores 85%+ vs 60-70% generic.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* ATS-specific fields (shown when ATS enabled) */}
+          {enableATS && (
+            <div className="space-y-4 border-2 border-gray-300 p-4 bg-gray-50 rounded-none">
+              <div>
+                <label className="block font-mono text-xs font-medium mb-2">
+                  Job URL (Optional - helps auto-detect)
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://boards.greenhouse.io/company/jobs/123"
+                  className="w-full px-3 py-2 border-2 border-black rounded-none font-mono text-sm
+                           focus:outline-none focus:ring-2 focus:ring-blue-700
+                           disabled:opacity-50"
+                  value={jobUrl}
+                  onChange={(e) => setJobUrl(e.target.value)}
+                  disabled={isLoading}
+                />
+              </div>
+
+              <div>
+                <label className="block font-mono text-xs font-medium mb-2">
+                  Company Name (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Google, Amazon, Microsoft..."
+                  className="w-full px-3 py-2 border-2 border-black rounded-none font-mono text-sm
+                           focus:outline-none focus:ring-2 focus:ring-blue-700
+                           disabled:opacity-50"
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  disabled={isLoading}
+                />
+              </div>
+
+              <PlatformSelector
+                selected={selectedPlatform}
+                onSelect={setSelectedPlatform}
+                detected={detectedPlatform}
+                disabled={isLoading}
+              />
+            </div>
+          )}
+
+          {!enableATS && (
+            <Dropdown
+              options={
+                promptOptions.length > 0
+                  ? promptOptions.map((opt) => ({
+                      id: opt.id,
+                      label: t(`tailor.promptOptions.${opt.id}.label`),
+                      description: t(`tailor.promptOptions.${opt.id}.description`),
+                    }))
+                  : [
+                      {
+                        id: 'nudge',
+                        label: t('tailor.promptOptions.nudge.label'),
+                        description: t('tailor.promptOptions.nudge.description'),
+                      },
+                      {
+                        id: 'keywords',
+                        label: t('tailor.promptOptions.keywords.label'),
+                        description: t('tailor.promptOptions.keywords.description'),
+                      },
+                      {
+                        id: 'full',
+                        label: t('tailor.promptOptions.full.label'),
+                        description: t('tailor.promptOptions.full.description'),
+                      },
+                    ]
+              }
+              value={selectedPromptId}
+              onChange={(value) => {
+                hasUserSelectedPrompt.current = true;
+                setSelectedPromptId(value);
+              }}
+              label={t('tailor.promptLabel')}
+              description={t('tailor.promptDescription')}
+              disabled={isLoading || promptLoading}
+            />
+          )}
 
           <div className="relative">
             <Textarea
@@ -413,7 +571,7 @@ export default function TailorPage() {
             {isLoading ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                {t('common.processing')}
+                {enableATS ? 'Optimizing for ATS...' : t('common.processing')}
               </>
             ) : statusLoading ? (
               <>
@@ -422,6 +580,8 @@ export default function TailorPage() {
               </>
             ) : !isLlmConfigured ? (
               t('tailor.configureApiKeyFirst')
+            ) : enableATS ? (
+              '🎯 Generate ATS-Optimized Resume'
             ) : (
               t('tailor.generateTailored')
             )}

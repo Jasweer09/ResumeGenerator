@@ -505,6 +505,27 @@ export default function DashboardPage() {
           </div>
         </Card>
 
+        {/* 3.5. ATS Optimize Resume */}
+        <Card className="aspect-square h-full" variant="default">
+          <div className="flex-1 flex flex-col items-center justify-center text-center h-full">
+            <Button
+              onClick={() => router.push('/ats')}
+              disabled={!isTailorEnabled}
+              className="w-20 h-20 bg-green-700 text-white border-2 border-black shadow-sw-default hover:bg-green-800 hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-none transition-all rounded-none"
+            >
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </Button>
+            <p className="text-xs font-mono mt-4 uppercase text-green-700">
+              ATS OPTIMIZE
+            </p>
+            <p className="text-[10px] font-mono mt-1 text-gray-600">
+              Platform-Specific
+            </p>
+          </div>
+        </Card>
+
         {/* 4. Fillers */}
         {Array.from({ length: fillerCount }).map((_, index) => (
           <Card
