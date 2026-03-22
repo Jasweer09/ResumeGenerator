@@ -339,23 +339,23 @@ async def optimize_resume_for_platform(
 
     logger.info(f"Extracted {len(jd_skills_map)} skills with variations from job description")
 
-    # Step 3: Generate optimized resume with scoring-aware prompt
-    logger.info(f"Generating resume optimized for {target_platform.value}...")
+    # Step 3: Generate optimized resume with SECTION-BY-SECTION prompt (Option B - God Mode)
+    logger.info(f"Generating resume optimized for {target_platform.value} (section-by-section)...")
 
-    # GOD-MODE: Enhanced prompt that explains HOW resume will be scored
-    optimization_prompt = ats_prompts.generate_scoring_aware_prompt(
-        platform=target_platform,
-        job_description=job_description,
-        jd_skills_with_variations=jd_skills_map,
+    # Use section-by-section structured prompt for better skill preservation
+    optimization_prompt = ats_prompts.generate_section_by_section_prompt(
         original_resume=resume_data,
+        jd_skills_with_variations=jd_skills_map,
+        cached_resume_skills=resume_keywords_cached if resume_keywords_cached else {},
+        target_platform=target_platform.value,
         language=language,
     )
 
     optimized_data = await complete_json(
         prompt=optimization_prompt,
-        system_prompt=f"You are an expert resume optimizer for {target_platform.value} ATS systems. "
-                      f"You understand how ATS scoring algorithms work and optimize accordingly.",
-        max_tokens=8192,
+        system_prompt="You are a precise resume enhancer. Follow section-by-section instructions exactly. "
+                      "Preserve all content not explicitly mentioned. Return valid JSON.",
+        max_tokens=12288,  # Increased for comprehensive resume
     )
 
     # Step 4: Score initial result

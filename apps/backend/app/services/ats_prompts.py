@@ -140,6 +140,152 @@ def get_platform_guidelines(platform: ATSPlatform) -> dict[str, Any]:
     return PLATFORM_GUIDELINES.get(platform, PLATFORM_GUIDELINES[ATSPlatform.TALEO])
 
 
+def generate_section_by_section_prompt(
+    original_resume: dict[str, Any],
+    jd_skills_with_variations: dict[str, set[str]],
+    cached_resume_skills: dict[str, set[str]],
+    target_platform: str,
+    language: str = "en"
+) -> str:
+    """Generate section-by-section structured prompt (Option B - God Mode).
+
+    Single LLM call with clear section-by-section tasks.
+    Uses set math to find missing skills (no LLM hallucination).
+
+    Args:
+        original_resume: Original resume data
+        jd_skills_with_variations: JD skills with variations
+        cached_resume_skills: Cached resume skills with variations
+        target_platform: Target platform name
+        language: Output language
+
+    Returns:
+        Section-by-section structured prompt
+    """
+    # Calculate missing skills using SET MATH (100% accurate!)
+    jd_canonicals = set(jd_skills_with_variations.keys())
+    resume_canonicals = set(cached_resume_skills.keys())
+
+    # Find matches (any variation overlap = match)
+    matched_skills = set()
+    for jd_canonical, jd_variations in jd_skills_with_variations.items():
+        for resume_canonical, resume_variations in cached_resume_skills.items():
+            if jd_variations & resume_variations:
+                matched_skills.add(jd_canonical)
+                break
+
+    missing_skills = jd_canonicals - matched_skills
+    missing_skills_sorted = sorted(list(missing_skills))[:30]  # Top 30
+
+    # Get current counts for verification
+    current_tech_skills = original_resume.get('additional', {}).get('technicalSkills', [])
+    current_summary = original_resume.get('summary', '')
+    work_experience = original_resume.get('workExperience', [])
+    total_bullets = sum(len(job.get('description', [])) for job in work_experience)
+
+    prompt = f"""You are enhancing a resume by adding missing skills. Work section-by-section systematically.
+
+CRITICAL: This is ADDITION ONLY. Preserve all existing content.
+
+════════════════════════════════════════════════════════════════════════════════
+MISSING SKILLS TO ADD ({len(missing_skills_sorted)} skills for {target_platform.upper()}):
+════════════════════════════════════════════════════════════════════════════════
+
+{chr(10).join(f"{i+1}. {skill.upper()}" for i, skill in enumerate(missing_skills_sorted))}
+
+════════════════════════════════════════════════════════════════════════════════
+TASK BREAKDOWN - Complete Sequentially:
+════════════════════════════════════════════════════════════════════════════════
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ [TASK 1] ENHANCE TECHNICAL SKILLS ARRAY (Highest Impact!)                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+Current: {len(current_tech_skills)} skills
+Action: ADD the {len(missing_skills_sorted)} missing skills above
+Result: {len(current_tech_skills)} + {len(missing_skills_sorted)} = {len(current_tech_skills) + len(missing_skills_sorted)} total
+
+Instructions:
+1. Take the current {len(current_tech_skills)} skills
+2. Append the missing skills from the list above
+3. Keep ALL original skills + add new ones
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ [TASK 2] ENHANCE SUMMARY (Add keyword visibility)                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+Current summary length: {len(current_summary)} chars
+
+Action: ADD top 5 missing skills naturally to summary
+Method: Enhance original summary by adding skill mentions
+
+Example:
+Before: "Engineer with 5 years of experience..."
+After: "Engineer with 5 years of experience in Docker, Kubernetes, and MCP protocol. Expert in..."
+
+Instructions:
+1. Keep ENTIRE original summary
+2. Add 5 missing skills naturally (append or mid-sentence)
+3. Make it flow naturally
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ [TASK 3] ENHANCE WORK EXPERIENCE (Selective bullet enhancement)             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+Total bullets: {total_bullets}
+
+Action: For EACH bullet, add relevant missing skill keywords where applicable
+
+Instructions:
+1. Review each of the {total_bullets} bullets
+2. If bullet relates to a missing skill → add skill keyword
+   Example: "Deployed applications" + missing "Docker" → "Deployed applications using Docker"
+3. If bullet doesn't relate → keep EXACTLY as written
+4. ALL {total_bullets} bullets must be in output
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ [TASKS 4-7] PRESERVE EXACTLY (DO NOT MODIFY)                                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+• Education: EXACT COPY
+• Projects: EXACT COPY (or slight bullet enhancement if relevant)
+• Certifications: EXACT COPY
+• All other fields: EXACT COPY
+
+════════════════════════════════════════════════════════════════════════════════
+ORIGINAL RESUME:
+════════════════════════════════════════════════════════════════════════════════
+
+{json.dumps(original_resume, indent=2)[:8000]}
+
+════════════════════════════════════════════════════════════════════════════════
+FINAL VERIFICATION (Before you output):
+════════════════════════════════════════════════════════════════════════════════
+
+Count Check:
+☑ technicalSkills: {len(current_tech_skills)} → {len(current_tech_skills) + len(missing_skills_sorted)}+ (increased)
+☑ work bullets: {total_bullets} (same count)
+☑ education entries: {len(original_resume.get('education', []))} (unchanged)
+
+Content Check:
+☑ No dates changed
+☑ No companies changed
+☑ No titles changed
+
+IF CHECKS FAIL: Fix before returning!
+
+════════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT:
+════════════════════════════════════════════════════════════════════════════════
+
+Return enhanced resume as JSON matching original structure.
+Modified: technicalSkills, summary, workExperience bullets
+Preserved: personalInfo, education, certifications, projects, all metadata
+"""
+
+    return prompt
+
+
 def generate_scoring_aware_prompt(
     platform: ATSPlatform,
     job_description: str,
