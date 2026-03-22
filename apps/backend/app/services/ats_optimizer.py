@@ -319,25 +319,42 @@ async def optimize_resume_for_platform(
             f"(confidence: {detected_platform.confidence.value})"
         )
 
-    # Step 2: Extract job keywords
-    logger.info("Extracting job keywords...")
-    job_keywords = await extract_job_keywords(job_description)
+    # Step 2: Extract job keywords with variations (god-mode)
+    logger.info("Extracting job keywords with variations (god-mode)...")
+    from app.services.ats_scorer import extract_keywords_with_variations
 
-    # Step 3: Generate optimized resume
+    jd_skills_map = await extract_keywords_with_variations(job_description, "job description")
+
+    # Flatten variations for prompt
+    jd_keywords_flat = set()
+    for canonical, variations in jd_skills_map.items():
+        jd_keywords_flat.update(variations)
+
+    # Convert to structured format for prompt compatibility
+    job_keywords_structured = {
+        "required_skills": sorted(list(jd_keywords_flat))[:30],  # Top 30 keywords
+        "preferred_skills": [],
+        "keywords": sorted(list(jd_keywords_flat))[30:60],  # Next 30
+    }
+
+    logger.info(f"Extracted {len(jd_skills_map)} skills with variations from job description")
+
+    # Step 3: Generate optimized resume with scoring-aware prompt
     logger.info(f"Generating resume optimized for {target_platform.value}...")
 
-    # Use platform-specific prompt
-    optimization_prompt = ats_prompts.generate_optimization_prompt(
+    # GOD-MODE: Enhanced prompt that explains HOW resume will be scored
+    optimization_prompt = ats_prompts.generate_scoring_aware_prompt(
         platform=target_platform,
         job_description=job_description,
-        job_keywords=job_keywords,
+        jd_skills_with_variations=jd_skills_map,
         original_resume=resume_data,
         language=language,
     )
 
     optimized_data = await complete_json(
         prompt=optimization_prompt,
-        system_prompt=f"You are an expert resume optimizer for {target_platform.value} ATS systems.",
+        system_prompt=f"You are an expert resume optimizer for {target_platform.value} ATS systems. "
+                      f"You understand how ATS scoring algorithms work and optimize accordingly.",
         max_tokens=8192,
     )
 
@@ -384,6 +401,7 @@ async def optimize_resume_for_platform(
                 current_resume=current_data,
                 score_analysis=score_analysis,
                 target_score=score_threshold,
+                jd_skills_with_variations=jd_skills_map,  # Pass skills for specific guidance
             )
 
             # Refine

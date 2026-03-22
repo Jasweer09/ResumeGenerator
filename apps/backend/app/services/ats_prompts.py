@@ -140,6 +140,144 @@ def get_platform_guidelines(platform: ATSPlatform) -> dict[str, Any]:
     return PLATFORM_GUIDELINES.get(platform, PLATFORM_GUIDELINES[ATSPlatform.TALEO])
 
 
+def generate_scoring_aware_prompt(
+    platform: ATSPlatform,
+    job_description: str,
+    jd_skills_with_variations: dict[str, set[str]],
+    original_resume: str | dict[str, Any],
+    language: str = "en",
+) -> str:
+    """Generate scoring-aware optimization prompt (GOD-MODE).
+
+    This prompt tells the LLM EXACTLY how the resume will be scored,
+    so it can optimize specifically for the scoring algorithm.
+
+    Args:
+        platform: Target ATS platform
+        job_description: Job description text
+        jd_skills_with_variations: Skills map with variations
+        original_resume: Resume content (markdown or structured dict)
+        language: Output language code
+
+    Returns:
+        Optimized prompt that explains scoring algorithm
+    """
+    guidelines = get_platform_guidelines(platform)
+
+    # Format resume input
+    if isinstance(original_resume, dict):
+        resume_input = json.dumps(original_resume, indent=2)
+    else:
+        resume_input = original_resume
+
+    # Format skills with variations
+    skills_section = "CRITICAL SKILLS TO INCLUDE:\n\n"
+    for canonical, variations in list(jd_skills_with_variations.items())[:25]:  # Top 25 skills
+        variations_str = ", ".join(sorted(variations)[:5])  # Top 5 variations
+        skills_section += f"• {canonical.upper()} (variations: {variations_str})\n"
+
+    # Get platform-specific scoring explanation
+    if platform == ATSPlatform.TALEO:
+        scoring_explanation = """
+CRITICAL - HOW YOUR RESUME WILL BE SCORED BY TALEO:
+• 80% weight on EXACT keyword matching (must match keywords EXACTLY as listed above)
+• 20% weight on formatting (single column, standard sections, no tables)
+• Taleo is the STRICTEST - use exact terms, no synonyms
+• Example: If JD says "Kubernetes", you MUST use "Kubernetes" (not "K8s", not "container orchestration")
+• Target: Include 70%+ of the skills listed above using EXACT terminology
+"""
+    elif platform == ATSPlatform.ICIMS:
+        scoring_explanation = """
+CRITICAL - HOW YOUR RESUME WILL BE SCORED BY iCIMS:
+• 60% weight on semantic similarity (context and meaning matter more than exact keywords)
+• 40% weight on formatting
+• iCIMS is FORGIVING - focuses on demonstrating skills in context
+• Example: "Built microservices with Docker" matches "containerization" and "docker" semantically
+• Target: Show skills through achievements and context, not just listing
+"""
+    elif platform == ATSPlatform.GREENHOUSE:
+        scoring_explanation = """
+CRITICAL - HOW YOUR RESUME WILL BE SCORED BY GREENHOUSE:
+• 50% weight on semantic similarity (human-readable storytelling)
+• 30% weight on formatting
+• 20% weight on human review (Greenhouse prioritizes recruiters, not automation)
+• Example: "Led team that improved system reliability by 40%" scores better than "Team leadership, system reliability"
+• Target: Achievement narratives with context and impact, natural language
+"""
+    else:  # Workday, Lever, SuccessFactors
+        scoring_explanation = f"""
+CRITICAL - HOW YOUR RESUME WILL BE SCORED BY {guidelines['name'].upper()}:
+• Combination of keyword matching and semantic understanding
+• Skills must be present AND demonstrated in context
+• Target: Include skills naturally while showing real experience
+"""
+
+    # Language mapping
+    language_names = {"en": "English", "es": "Spanish", "zh": "Chinese", "ja": "Japanese"}
+    output_language = language_names.get(language, "English")
+
+    # Build god-mode prompt
+    prompt = f"""You are an expert resume optimizer specializing in {guidelines['name']} ATS systems.
+
+{scoring_explanation}
+
+TARGET ATS PLATFORM: {guidelines['name']}
+
+PLATFORM-SPECIFIC OPTIMIZATION GUIDELINES:
+
+EMPHASIZE:
+{chr(10).join('• ' + item for item in guidelines['emphasis'])}
+
+AVOID:
+{chr(10).join('• ' + item for item in guidelines['avoid'])}
+
+FORMAT REQUIREMENTS:
+{chr(10).join('• ' + item for item in guidelines['format_requirements'])}
+
+---
+
+{skills_section}
+
+---
+
+JOB DESCRIPTION (For Context):
+{job_description[:2000]}
+
+---
+
+ORIGINAL RESUME:
+{resume_input}
+
+---
+
+OPTIMIZATION TASK:
+
+Your goal is to maximize the ATS score for {guidelines['name']} by optimizing this resume.
+
+STRATEGY:
+1. Review the scoring algorithm above - this is EXACTLY how you'll be evaluated
+2. Integrate the required skills naturally into the resume where the candidate has relevant experience
+3. Use the EXACT terminology from the skills list (especially for Taleo/Workday)
+4. For semantic platforms (iCIMS, Greenhouse), focus on context and storytelling
+5. Maintain 100% truthfulness - NEVER fabricate experience or skills
+6. Optimize existing content, don't invent new content
+
+CRITICAL RULES:
+1. NEVER fabricate experience, skills, or credentials
+2. NEVER add skills the candidate doesn't have
+3. ONLY reframe and optimize EXISTING content
+4. Use keywords naturally in context (not keyword stuffing)
+5. Maintain factual accuracy of dates, companies, titles
+6. Output in {output_language}
+
+OUTPUT FORMAT:
+Return the optimized resume as structured JSON matching the original schema.
+Focus on maximizing the ATS score by aligning with the scoring algorithm above.
+"""
+
+    return prompt
+
+
 def generate_optimization_prompt(
     platform: ATSPlatform,
     job_description: str,
@@ -246,60 +384,123 @@ def generate_refinement_prompt(
     current_resume: dict[str, Any],
     score_analysis: dict[str, Any],
     target_score: float,
+    jd_skills_with_variations: dict[str, set[str]] | None = None,
 ) -> str:
-    """Generate refinement prompt based on scoring analysis.
+    """Generate refinement prompt with specific, actionable guidance (GOD-MODE).
+
+    Tells LLM EXACTLY what keywords are missing and HOW to add them.
 
     Args:
         platform: Target ATS platform
         current_resume: Current resume data
         score_analysis: Scoring analysis with weaknesses
         target_score: Target score to achieve
+        jd_skills_with_variations: Job skills with variations for precise guidance
 
     Returns:
-        Refinement prompt for LLM
+        Refinement prompt with specific instructions
     """
     guidelines = get_platform_guidelines(platform)
 
     missing_keywords = score_analysis.get("missing_keywords", [])
     weaknesses = score_analysis.get("weaknesses", [])
     current_score = score_analysis.get("score", 0)
+    improvement_needed = target_score - current_score
+
+    # Build specific missing skills section
+    missing_skills_section = "CRITICAL - SPECIFIC SKILLS TO ADD:\n\n"
+    if jd_skills_with_variations and missing_keywords:
+        # Find which canonical skills are missing
+        missing_canonicals = []
+        for canonical, variations in jd_skills_with_variations.items():
+            # If any variation is in missing list, the skill is missing
+            if any(v in missing_keywords for v in variations):
+                missing_canonicals.append((canonical, variations))
+
+        for canonical, variations in missing_canonicals[:15]:  # Top 15 missing
+            variations_str = " OR ".join(f'"{v}"' for v in sorted(variations)[:3])
+            missing_skills_section += f"• {canonical.upper()}: Use {variations_str}\n"
+            missing_skills_section += f"  └─ HOW: Find where you have experience with this and mention it explicitly\n"
+    else:
+        missing_skills_section += "• Top missing keywords:\n"
+        for kw in missing_keywords[:15]:
+            missing_skills_section += f"  - {kw}\n"
+
+    # Platform-specific strategy
+    if platform == ATSPlatform.TALEO:
+        strategy = """
+TALEO REFINEMENT STRATEGY (Exact keyword matching - 80% weight):
+1. Add missing keywords using EXACT terminology (no synonyms)
+2. Place keywords in high-visibility areas (summary, job titles, bullet points)
+3. Repeat important keywords 2-3 times across sections for emphasis
+4. Use simple, clear formatting (remove any tables or columns)
+"""
+    elif platform == ATSPlatform.ICIMS:
+        strategy = """
+iCIMS REFINEMENT STRATEGY (Semantic understanding - 60% weight):
+1. Integrate missing skills by DEMONSTRATING them in context
+2. Add achievement statements that show these skills in action
+3. Use natural language and storytelling
+4. Don't just list skills - show impact and results
+"""
+    else:
+        strategy = f"""
+{guidelines['name'].upper()} REFINEMENT STRATEGY:
+1. Integrate missing keywords naturally where experience exists
+2. Balance exact terminology with contextual demonstration
+3. Follow platform-specific guidelines above
+"""
 
     prompt = f"""You are refining a resume to improve its {guidelines['name']} ATS score.
 
-CURRENT SCORE: {current_score:.1f}%
-TARGET SCORE: {target_score:.1f}%
-IMPROVEMENT NEEDED: {target_score - current_score:.1f} points
+SCORING STATUS:
+• Current Score: {current_score:.1f}%
+• Target Score: {target_score:.1f}%
+• Improvement Needed: +{improvement_needed:.1f} points
+• Gap Analysis: {"CRITICAL - Major improvement needed" if improvement_needed > 20 else "Minor refinement needed"}
+
+{missing_skills_section}
 
 IDENTIFIED WEAKNESSES:
-{chr(10).join('- ' + w for w in weaknesses) if weaknesses else '- None identified'}
+{chr(10).join('• ' + w for w in weaknesses) if weaknesses else '• None identified'}
 
-MISSING KEYWORDS:
-{chr(10).join('- ' + k for k in missing_keywords[:10]) if missing_keywords else '- None identified'}
+{strategy}
 
-PLATFORM-SPECIFIC FOCUS ({guidelines['name']}):
-{chr(10).join('- ' + item for item in guidelines['emphasis'][:3])}
-
-CURRENT RESUME:
+CURRENT RESUME (To Be Refined):
 {json.dumps(current_resume, indent=2)}
 
 ---
 
-TASK:
-Make TARGETED improvements to address the weaknesses above.
+REFINEMENT TASK:
+
+Make SPECIFIC, TARGETED improvements to add the missing skills and address weaknesses.
+
+STEP-BY-STEP APPROACH:
+1. Review each missing skill above
+2. Find where in your experience you actually worked with that skill
+3. Add specific mention of the skill in that section
+4. Use the exact terminology specified (especially for Taleo/Workday)
+5. For semantic platforms (iCIMS/Greenhouse), demonstrate skills through achievements
 
 CRITICAL RULES:
-1. ONLY address the identified weaknesses
-2. DO NOT fabricate new experience or skills
-3. DO NOT remove existing content unless problematic
-4. Focus on better keyword integration and formatting
-5. Maintain all factual accuracy
+1. ONLY add skills where candidate has REAL experience
+2. DO NOT fabricate or exaggerate
+3. DO NOT remove existing good content
+4. Focus on NATURAL integration of missing keywords
+5. Maintain factual accuracy at all times
 
-FOCUS AREAS:
-- If missing keywords: Integrate them naturally where the candidate has relevant experience
-- If format issues: Improve structure without changing content
-- If context missing: Add more detail to existing achievements
-
-Return the refined resume as structured JSON.
+TARGET OUTCOME:
+Return refined resume that scores {target_score:.1f}%+ by including the specific missing skills listed above.
+Output as structured JSON matching the original schema.
 """
 
     return prompt
+
+
+def generate_optimization_prompt(
+    platform: ATSPlatform,
+    job_description: str,
+    job_keywords: dict[str, Any],
+    original_resume: str | dict[str, Any],
+    language: str = "en",
+) -> str:
