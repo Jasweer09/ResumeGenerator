@@ -51,61 +51,77 @@ async def extract_keywords_with_variations(text: str, context: str = "job descri
     if not text or len(text) < 20:
         return {}
 
-    prompt = f"""Extract all technical skills, technologies, tools, frameworks, programming languages,
-certifications, and qualifications from this {context}.
+    prompt = f"""Extract the top 40 most important technical skills, technologies, tools, frameworks,
+programming languages, and certifications from this {context}.
 
-For EACH skill, provide the canonical name AND common variations/abbreviations.
+For EACH skill, provide the canonical name and 2-3 common variations.
 
 RULES:
-1. Extract ONLY actual skills, technologies, and tools
-2. DO NOT extract generic words (e.g., "ability", "experience", "team", "work")
-3. DO NOT extract requirements language (e.g., "5+ years", "must have")
-4. For each skill, include:
-   - Full official name
-   - Common abbreviations (e.g., Kubernetes → K8s, K8)
-   - Alternate spellings/terms
-   - Related terms that mean the same thing
+1. Extract ONLY actual skills and technologies
+2. DO NOT extract: "ability", "experience", "team", "work", "years", "must have"
+3. Focus on: programming languages, frameworks, tools, cloud platforms, methodologies
+4. For each skill, include only the MOST common variations (max 3)
+   - Example: Kubernetes → ["Kubernetes", "K8s"]
+   - Example: JavaScript → ["JavaScript", "JS"]
 
 TEXT TO ANALYZE:
-{text[:3000]}
+{text[:4000]}
 
-Return JSON with "skills" array. Each skill has "canonical" name and "variations" array.
-Example:
+Return ONLY valid JSON. Keep it concise - canonical name + max 3 variations per skill.
+Format:
 {{
   "skills": [
-    {{"canonical": "Kubernetes", "variations": ["Kubernetes", "K8s", "K8", "container orchestration"]}},
-    {{"canonical": "JavaScript", "variations": ["JavaScript", "JS", "ECMAScript", "ES6", "Node.js"]}},
-    {{"canonical": "Machine Learning", "variations": ["Machine Learning", "ML", "machine-learning"]}}
+    {{"canonical": "Python", "variations": ["Python", "Py"]}},
+    {{"canonical": "Kubernetes", "variations": ["Kubernetes", "K8s", "K8"]}},
+    {{"canonical": "Machine Learning", "variations": ["Machine Learning", "ML"]}}
   ]
 }}
+
+IMPORTANT: Return EXACTLY 40 skills max to avoid truncation. Focus on most critical skills.
 """
 
     try:
         result = await complete_json(
             prompt=prompt,
             system_prompt="You are an expert at identifying technical skills and their variations.",
-            max_tokens=3072,
+            max_tokens=6144,  # Increased for comprehensive extraction
         )
 
         # Build canonical -> variations mapping
         skills_map = {}
         skills_list = result.get('skills', [])
 
+        # EDGE CASE: Check if we got any skills
+        if not skills_list or len(skills_list) == 0:
+            logger.warning("LLM returned no skills, falling back to rule-based extraction")
+            keywords = extract_keywords_fallback(text)
+            return {kw: {kw} for kw in keywords}
+
         for skill_obj in skills_list:
+            if not isinstance(skill_obj, dict):
+                continue  # Skip invalid entries
+
             canonical = skill_obj.get('canonical', '').lower().strip()
             variations = skill_obj.get('variations', [])
 
             if canonical:
                 # Normalize all variations to lowercase
-                variation_set = {v.lower().strip() for v in variations if v}
+                variation_set = {v.lower().strip() for v in variations if v and isinstance(v, str)}
                 variation_set.add(canonical)  # Include canonical form
                 skills_map[canonical] = variation_set
 
+        # EDGE CASE: If extraction returned nothing usable
+        if not skills_map:
+            logger.warning("LLM extraction produced no usable skills, falling back")
+            keywords = extract_keywords_fallback(text)
+            return {kw: {kw} for kw in keywords}
+
+        logger.info(f"Extracted {len(skills_map)} skills with variations successfully")
         return skills_map
 
     except Exception as e:
-        logger.error(f"LLM keyword extraction with variations failed: {e}, falling back")
-        # Fallback: extract without variations
+        logger.error(f"LLM keyword extraction with variations failed: {e}, falling back to rule-based")
+        # EDGE CASE: Fallback to rule-based extraction
         keywords = extract_keywords_fallback(text)
         return {kw: {kw} for kw in keywords}  # Each keyword maps to itself only
 
@@ -674,26 +690,34 @@ async def score_all_platforms(
     resume_text: str,
     job_description: str,
     target_platform: ATSPlatform,
+    cached_resume_keywords: dict[str, set[str]] | None = None,
 ) -> MultiPlatformScores:
     """Score resume across all 6 ATS platforms.
 
-    GOD-MODE: Extracts keywords ONCE with variations, then scores all platforms.
-    This is 6x faster than extracting per platform.
+    GOD-MODE: Uses cached resume keywords when available, extracts JD keywords once.
+    This is 12x faster than naive extraction (2 LLM calls instead of 12).
 
     Args:
         resume_text: Resume content
         job_description: Job description
         target_platform: Primary platform to optimize for
+        cached_resume_keywords: Pre-extracted resume keywords (from cache)
 
     Returns:
         MultiPlatformScores with all 6 platform results
     """
-    logger.info("Extracting keywords with variations (LLM-based, god-mode)...")
+    logger.info("Preparing keywords for multi-platform scoring...")
 
-    # OPTIMIZATION: Extract keywords ONCE (not 12 times!)
-    # This makes scoring 6x faster and more consistent
+    # Extract JD keywords (always fresh)
     jd_skills_map = await extract_keywords_with_variations(job_description, "job description")
-    resume_skills_map = await extract_keywords_with_variations(resume_text, "resume")
+
+    # Use cached resume keywords or extract on-demand
+    if cached_resume_keywords:
+        logger.info(f"Using cached resume keywords ({len(cached_resume_keywords)} skills) - FAST!")
+        resume_skills_map = cached_resume_keywords
+    else:
+        logger.warning("No cached keywords, extracting on-demand (slower)...")
+        resume_skills_map = await extract_keywords_with_variations(resume_text, "resume")
 
     # Flatten for backward compatibility
     jd_keywords_all = set()
