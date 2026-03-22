@@ -339,23 +339,77 @@ async def optimize_resume_for_platform(
 
     logger.info(f"Extracted {len(jd_skills_map)} skills with variations from job description")
 
-    # Step 3: Generate optimized resume with scoring-aware prompt
-    logger.info(f"Generating resume optimized for {target_platform.value}...")
+    # Step 3: GOD-MODE Two-Phase Optimization
+    logger.info(f"Starting god-mode two-phase optimization for {target_platform.value}...")
 
-    # GOD-MODE: Enhanced prompt that explains HOW resume will be scored
-    optimization_prompt = ats_prompts.generate_scoring_aware_prompt(
-        platform=target_platform,
-        job_description=job_description,
+    # Import new god-mode prompts
+    from app.services import ats_prompts_v2
+
+    # PHASE 1: Gap Analysis (Find what's missing without modifying)
+    logger.info("Phase 1: Analyzing skill gaps (no modification)...")
+
+    phase1_prompt = ats_prompts_v2.generate_phase1_gap_analysis_prompt(
+        original_resume_data=resume_data,
+        original_resume_text=resume_markdown,
         jd_skills_with_variations=jd_skills_map,
-        original_resume=resume_data,
+        target_platform=target_platform,
         language=language,
     )
 
-    optimized_data = await complete_json(
-        prompt=optimization_prompt,
-        system_prompt=f"You are an expert resume optimizer for {target_platform.value} ATS systems. "
-                      f"You understand how ATS scoring algorithms work and optimize accordingly.",
-        max_tokens=8192,
+    gap_analysis = await complete_json(
+        prompt=phase1_prompt,
+        system_prompt="You are a precise resume analyzer. Extract comprehensively and truthfully. Return valid JSON.",
+        max_tokens=10240,  # Larger for comprehensive analysis
+    )
+
+    # Validate Phase 1 output
+    if not gap_analysis or not gap_analysis.get("step3_gap_analysis"):
+        logger.error("Phase 1 failed - no gap analysis returned")
+        raise ValueError("Gap analysis failed - cannot proceed to Phase 2")
+
+    logger.info(
+        f"Phase 1 complete: {gap_analysis.get('summary', {}).get('original_skills', 0)} skills in resume, "
+        f"{gap_analysis.get('summary', {}).get('addable', 0)} skills can be added"
+    )
+
+    # PHASE 2: Surgical Integration (Add missing skills, preserve everything)
+    logger.info("Phase 2: Surgical skill integration (addition-only)...")
+
+    phase2_prompt = ats_prompts_v2.generate_phase2_surgical_integration_prompt(
+        original_resume_data=resume_data,
+        gap_analysis=gap_analysis,
+        jd_skills_with_variations=jd_skills_map,
+        target_platform=target_platform,
+        language=language,
+    )
+
+    enhanced_result = await complete_json(
+        prompt=phase2_prompt,
+        system_prompt="You are an expert resume enhancer. Preserve ALL original content while adding skills. Return valid JSON.",
+        max_tokens=12288,  # Larger for complete resume + verification
+    )
+
+    # Validate Phase 2 output
+    if not enhanced_result or not enhanced_result.get("enhanced_resume"):
+        logger.error("Phase 2 failed - no enhanced resume returned")
+        raise ValueError("Enhancement failed - no resume generated")
+
+    verification = enhanced_result.get("verification_report", {})
+
+    # CRITICAL VERIFICATION: Ensure preservation
+    if verification.get("skills_removed", 0) > 0:
+        logger.error(f"CRITICAL: {verification['skills_removed']} skills were removed!")
+        raise ValueError("Preservation law violated - skills were removed!")
+
+    if verification.get("preservation_rate") != "100%":
+        logger.warning(f"Preservation rate: {verification.get('preservation_rate')} (should be 100%)")
+
+    optimized_data = enhanced_result["enhanced_resume"]
+
+    logger.info(
+        f"Phase 2 complete: {verification.get('original_skill_count', 0)} → "
+        f"{verification.get('enhanced_skill_count', 0)} skills "
+        f"({verification.get('skills_added', 0)} added, {verification.get('skills_removed', 0)} removed)"
     )
 
     # Step 4: Score initial result
