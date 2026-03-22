@@ -699,32 +699,38 @@ async def score_all_platforms(
     job_description: str,
     target_platform: ATSPlatform,
     cached_resume_keywords: dict[str, set[str]] | None = None,
+    cached_jd_keywords: dict[str, set[str]] | None = None,
 ) -> MultiPlatformScores:
     """Score resume across all 6 ATS platforms.
 
-    GOD-MODE: Uses cached resume keywords when available, extracts JD keywords once.
-    This is 12x faster than naive extraction (2 LLM calls instead of 12).
+    GOD-MODE: Uses cached keywords when available for consistency and performance.
 
     Args:
         resume_text: Resume content
         job_description: Job description
         target_platform: Primary platform to optimize for
-        cached_resume_keywords: Pre-extracted resume keywords (from cache)
+        cached_resume_keywords: Pre-extracted resume keywords
+        cached_jd_keywords: Pre-extracted JD keywords (for consistency!)
 
     Returns:
         MultiPlatformScores with all 6 platform results
     """
     logger.info("Preparing keywords for multi-platform scoring...")
 
-    # Extract JD keywords (always fresh)
-    jd_skills_map = await extract_keywords_with_variations(job_description, "job description")
+    # Use cached JD keywords or extract fresh (CONSISTENCY!)
+    if cached_jd_keywords:
+        logger.info(f"Using pre-extracted JD keywords ({len(cached_jd_keywords)} skills) - CONSISTENT!")
+        jd_skills_map = cached_jd_keywords
+    else:
+        logger.info("Extracting JD keywords...")
+        jd_skills_map = await extract_keywords_with_variations(job_description, "job description")
 
     # Use cached resume keywords or extract on-demand
     if cached_resume_keywords:
         logger.info(f"Using cached resume keywords ({len(cached_resume_keywords)} skills) - FAST!")
         resume_skills_map = cached_resume_keywords
     else:
-        logger.warning("No cached keywords, extracting on-demand (slower)...")
+        logger.info("Extracting resume keywords...")
         resume_skills_map = await extract_keywords_with_variations(resume_text, "resume")
 
     # Flatten for backward compatibility
