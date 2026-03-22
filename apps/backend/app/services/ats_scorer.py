@@ -9,6 +9,7 @@ from app.schemas.ats_models import (
     MultiPlatformScores,
     PlatformScore,
 )
+from app.llm import complete_json
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,58 @@ def _get_nlp():
     return _nlp
 
 
-def extract_keywords(text: str) -> set[str]:
+async def extract_keywords_llm(text: str, context: str = "job description") -> set[str]:
+    """Extract keywords using LLM (God-mode: intelligent, dynamic, domain-agnostic).
+
+    Uses AI to intelligently identify actual skills, technologies, tools, and qualifications
+    while filtering out generic words and fluff. Works for ANY domain automatically.
+
+    Args:
+        text: Text to extract keywords from
+        context: "job description" or "resume" for better extraction
+
+    Returns:
+        Set of lowercase keywords (skills, technologies, tools)
+    """
+    if not text or len(text) < 20:
+        return set()
+
+    prompt = f"""Extract all technical skills, technologies, tools, frameworks, programming languages,
+certifications, and specific qualifications from this {context}.
+
+RULES:
+1. Extract ONLY actual skills, technologies, and tools (e.g., "Python", "Docker", "LangChain", "RAG", "AWS")
+2. DO NOT extract generic words (e.g., "ability", "experience", "work", "team", "project")
+3. DO NOT extract job requirements language (e.g., "5+ years", "must have", "should be")
+4. DO NOT extract company-specific terms unless they're technologies
+5. Include both full names and common abbreviations (e.g., "Kubernetes" and "K8s")
+6. Include multi-word technical terms (e.g., "machine learning", "prompt engineering")
+
+TEXT TO ANALYZE:
+{text[:3000]}
+
+Return a JSON object with a "keywords" array of extracted skills/technologies.
+Example: {{"keywords": ["Python", "Docker", "AWS", "LangChain", "RAG pipeline", "REST API"]}}
+"""
+
+    try:
+        result = await complete_json(
+            prompt=prompt,
+            system_prompt="You are an expert at identifying technical skills and technologies.",
+            max_tokens=2048,
+        )
+
+        keywords_list = result.get('keywords', [])
+        # Normalize to lowercase set
+        return {kw.lower().strip() for kw in keywords_list if kw and len(kw) > 1}
+
+    except Exception as e:
+        logger.error(f"LLM keyword extraction failed: {e}, falling back to rule-based")
+        # Fallback to rule-based if LLM fails
+        return extract_keywords_fallback(text)
+
+
+def extract_keywords_fallback(text: str) -> set[str]:
     """Extract technical keywords and skills from text.
 
     Focuses on extracting actual skills, technologies, frameworks, and tools
@@ -263,9 +315,9 @@ async def _score_taleo(resume_text: str, job_description: str) -> PlatformScore:
     Returns:
         PlatformScore for Taleo
     """
-    # Extract keywords from both
-    jd_keywords = extract_keywords(job_description)
-    resume_keywords = extract_keywords(resume_text)
+    # Extract keywords from both using LLM (god-mode: intelligent, dynamic)
+    jd_keywords = await extract_keywords_llm(job_description, "job description")
+    resume_keywords = await extract_keywords_llm(resume_text, "resume")
 
     # Calculate exact matches
     exact_matches = jd_keywords & resume_keywords  # Set intersection
@@ -315,8 +367,8 @@ async def _score_workday(resume_text: str, job_description: str) -> PlatformScor
 
     Algorithm: 70% exact+semantic, 30% formatting
     """
-    jd_keywords = extract_keywords(job_description)
-    resume_keywords = extract_keywords(resume_text)
+    jd_keywords = await extract_keywords_llm(job_description, "job description")
+    resume_keywords = await extract_keywords_llm(resume_text, "resume")
 
     # Exact matches
     exact_matches = jd_keywords & resume_keywords
@@ -438,43 +490,16 @@ async def _score_successfactors(resume_text: str, job_description: str) -> Platf
 
     Algorithm: 70% taxonomy-normalized keywords, 30% formatting
     """
-    # Simplified taxonomy: normalize common variations
-    taxonomy = {
-        "javascript": {"js", "ecmascript", "javascript"},
-        "python": {"python", "py"},
-        "management": {"manage", "managing", "managed", "management", "led", "leading"},
-        "leadership": {"lead", "leading", "led", "leadership", "managed", "managing"},
-    }
+    # LLM-based extraction (god-mode: understands variations automatically)
+    jd_keywords = await extract_keywords_llm(job_description, "job description")
+    resume_keywords = await extract_keywords_llm(resume_text, "resume")
 
-    # Normalize keywords using taxonomy
-    jd_keywords = extract_keywords(job_description)
-    resume_keywords = extract_keywords(resume_text)
+    # LLM already normalizes variations (JavaScript/JS, management/led, etc.)
+    # No need for hardcoded taxonomy - that's the god-mode advantage!
 
-    normalized_jd = set()
-    for kw in jd_keywords:
-        matched = False
-        for canonical, variants in taxonomy.items():
-            if kw in variants:
-                normalized_jd.add(canonical)
-                matched = True
-                break
-        if not matched:
-            normalized_jd.add(kw)
-
-    normalized_resume = set()
-    for kw in resume_keywords:
-        matched = False
-        for canonical, variants in taxonomy.items():
-            if kw in variants:
-                normalized_resume.add(canonical)
-                matched = True
-                break
-        if not matched:
-            normalized_resume.add(kw)
-
-    matches = normalized_jd & normalized_resume
-    if len(normalized_jd) > 0:
-        taxonomy_score = (len(matches) / len(normalized_jd)) * 100
+    matches = jd_keywords & resume_keywords
+    if len(jd_keywords) > 0:
+        taxonomy_score = (len(matches) / len(jd_keywords)) * 100
     else:
         taxonomy_score = 0.0
 
