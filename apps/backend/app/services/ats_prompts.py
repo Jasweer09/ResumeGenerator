@@ -254,23 +254,41 @@ ORIGINAL RESUME:
 
 OPTIMIZATION TASK:
 
-Your goal is to maximize the ATS score for {guidelines['name']} by optimizing this resume.
+Maximize the ATS score by integrating the required skills above into this resume.
 
-STRATEGY:
-1. Review the scoring algorithm above - this is EXACTLY how you'll be evaluated
-2. Integrate the required skills naturally into the resume where the candidate has relevant experience
-3. Use the EXACT terminology from the skills list (especially for Taleo/Workday)
-4. For semantic platforms (iCIMS, Greenhouse), focus on context and storytelling
-5. Maintain 100% truthfulness - NEVER fabricate experience or skills
-6. Optimize existing content, don't invent new content
+CRITICAL STRATEGY:
+
+1. KEEP ALL existing content from the original resume
+2. ADD missing skills from the list above WHERE the candidate has relevant experience
+3. ENHANCE existing bullet points to explicitly mention required skills
+4. DO NOT remove any existing skills, experience, or achievements
+5. DO NOT fabricate - only add skills where evidence exists in the resume
+
+EXAMPLE OF GOOD OPTIMIZATION:
+
+Original bullet: "Built chatbot platform using AI frameworks"
+Missing skill: "LangChain"
+Optimized: "Built chatbot platform using LangChain framework and AI agents"
+(Added "LangChain" naturally where framework experience exists)
+
+SCORING ALGORITHM (How you'll be evaluated):
+{chr(10).join('• ' + str(item) for item in [
+    f"Keyword Match: Must include {len(jd_skills_with_variations)} skills",
+    "Use EXACT terminology from skills list above",
+    f"Target: 70-80% skill coverage ({int(len(jd_skills_with_variations) * 0.75)} skills minimum)",
+    "Integrate skills naturally in bullet points, not just listed"
+])}
 
 CRITICAL RULES:
-1. NEVER fabricate experience, skills, or credentials
-2. NEVER add skills the candidate doesn't have
-3. ONLY reframe and optimize EXISTING content
-4. Use keywords naturally in context (not keyword stuffing)
-5. Maintain factual accuracy of dates, companies, titles
+1. PRESERVE all existing resume content (work experience, education, projects)
+2. ADD missing skills by enhancing existing descriptions
+3. NEVER remove existing skills or reduce content length
+4. NEVER fabricate experience - only integrate skills where applicable
+5. Maintain factual accuracy at ALL times
 6. Output in {output_language}
+
+TARGET:
+Return optimized resume with {int(len(jd_skills_with_variations) * 0.8)} of the {len(jd_skills_with_variations)} required skills naturally integrated.
 
 OUTPUT FORMAT:
 Return the optimized resume as structured JSON matching the original schema.
