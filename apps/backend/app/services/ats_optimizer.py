@@ -362,14 +362,15 @@ async def optimize_resume_for_platform(
     logger.info("Scoring optimized resume across all platforms...")
     optimized_text = convert_resume_data_to_text(optimized_data)
 
-    # OPTIMIZATION: Use cached keywords from master resume
-    # After LLM optimization, content is similar enough to use cached keywords
-    # This saves 1 LLM call per optimization
+    # CRITICAL: Extract keywords from OPTIMIZED resume (not cached!)
+    # LLM added new skills - we must detect them to see improvement
+    # Caching is ONLY for master resume, not optimized versions
+    logger.info("Extracting keywords from optimized resume to detect improvements...")
     initial_scores = await ats_scorer.score_all_platforms(
         resume_text=optimized_text,
         job_description=job_description,
         target_platform=target_platform,
-        cached_resume_keywords=resume_keywords_cached if resume_keywords_cached else None,
+        cached_resume_keywords=None,  # Don't use cache - extract fresh!
     )
 
     # Step 5: Adaptive refinement decision
@@ -412,13 +413,13 @@ async def optimize_resume_for_platform(
                 max_tokens=8192,
             )
 
-            # Re-score (still using cached keywords - refinement doesn't change core skills)
+            # Re-score with fresh extraction (refinement added skills, must detect them!)
             refined_text = convert_resume_data_to_text(refined_data)
             refined_scores = await ats_scorer.score_all_platforms(
                 resume_text=refined_text,
                 job_description=job_description,
                 target_platform=target_platform,
-                cached_resume_keywords=resume_keywords_cached if resume_keywords_cached else None,
+                cached_resume_keywords=None,  # Extract fresh to see what LLM added!
             )
 
             new_score = refined_scores.scores[target_platform.value].score
