@@ -19,6 +19,79 @@ from app.llm import complete_json
 logger = logging.getLogger(__name__)
 
 
+def convert_resume_data_to_text(resume_data: dict[str, Any]) -> str:
+    """Convert structured resume data to readable text for scoring.
+
+    Args:
+        resume_data: Structured resume dictionary
+
+    Returns:
+        Plain text representation of resume
+    """
+    lines = []
+
+    # Personal Info
+    personal = resume_data.get('personalInfo', {})
+    if personal:
+        if personal.get('name'):
+            lines.append(personal['name'])
+        if personal.get('title'):
+            lines.append(personal['title'])
+        lines.append('')  # Blank line
+
+    # Summary
+    if resume_data.get('summary'):
+        lines.append('SUMMARY')
+        lines.append(resume_data['summary'])
+        lines.append('')
+
+    # Work Experience
+    work_exp = resume_data.get('workExperience', [])
+    if work_exp:
+        lines.append('EXPERIENCE')
+        for exp in work_exp:
+            lines.append(f"{exp.get('title', '')} | {exp.get('company', '')} | {exp.get('years', '')}")
+            for desc in exp.get('description', []):
+                lines.append(f"• {desc}")
+            lines.append('')
+
+    # Education
+    education = resume_data.get('education', [])
+    if education:
+        lines.append('EDUCATION')
+        for edu in education:
+            lines.append(f"{edu.get('degree', '')} | {edu.get('institution', '')} | {edu.get('years', '')}")
+        lines.append('')
+
+    # Skills
+    additional = resume_data.get('additional', {})
+    skills = additional.get('technicalSkills', [])
+    if skills:
+        lines.append('SKILLS')
+        lines.append(', '.join(skills))
+        lines.append('')
+
+    # Certifications
+    certs = additional.get('certificationsTraining', [])
+    if certs:
+        lines.append('CERTIFICATIONS')
+        for cert in certs:
+            lines.append(f"• {cert}")
+        lines.append('')
+
+    # Projects
+    projects = resume_data.get('personalProjects', [])
+    if projects:
+        lines.append('PROJECTS')
+        for proj in projects:
+            lines.append(f"{proj.get('name', '')} - {proj.get('role', '')}")
+            for desc in proj.get('description', []):
+                lines.append(f"• {desc}")
+            lines.append('')
+
+    return '\n'.join(lines)
+
+
 def analyze_refinement_need(
     scores: MultiPlatformScores,
     target_platform: ATSPlatform,
@@ -178,8 +251,9 @@ async def optimize_resume_for_platform(
 
     # Step 4: Score initial result
     logger.info("Scoring optimized resume across all platforms...")
+    optimized_text = convert_resume_data_to_text(optimized_data)
     initial_scores = await ats_scorer.score_all_platforms(
-        resume_text=str(optimized_data),  # Convert to string for scoring
+        resume_text=optimized_text,
         job_description=job_description,
         target_platform=target_platform,
     )
@@ -224,8 +298,9 @@ async def optimize_resume_for_platform(
             )
 
             # Re-score
+            refined_text = convert_resume_data_to_text(refined_data)
             refined_scores = await ats_scorer.score_all_platforms(
-                resume_text=str(refined_data),
+                resume_text=refined_text,
                 job_description=job_description,
                 target_platform=target_platform,
             )

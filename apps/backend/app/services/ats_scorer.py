@@ -34,10 +34,10 @@ def _get_nlp():
 
 
 def extract_keywords(text: str) -> set[str]:
-    """Extract meaningful keywords from text using spaCy NLP.
+    """Extract technical keywords and skills from text.
 
-    Filters out stopwords and extracts nouns, proper nouns, and noun chunks
-    that represent skills, technologies, and qualifications.
+    Focuses on extracting actual skills, technologies, frameworks, and tools
+    rather than generic nouns. Uses patterns and context to identify technical terms.
 
     Args:
         text: Text to extract keywords from
@@ -49,19 +49,77 @@ def extract_keywords(text: str) -> set[str]:
         return set()
 
     nlp = _get_nlp()
-    doc = nlp(text.lower())
     keywords = set()
 
-    # Extract nouns and proper nouns (skills, tools, technologies)
+    # Pattern 1: Extract capitalized technical terms from ORIGINAL text (before lowercasing)
+    # These are often frameworks, tools, libraries (LangChain, Docker, AWS, etc.)
+    import re
+    capitalized_pattern = r'\b[A-Z][A-Za-z0-9]*(?:[A-Z][a-z0-9]*)*\b'
+    capitalized_terms = re.findall(capitalized_pattern, text)
+    for term in capitalized_terms:
+        if len(term) > 2 and term not in ['The', 'A', 'An', 'We', 'If', 'Job', 'And', 'Or', 'For']:
+            keywords.add(term.lower())
+
+    # Pattern 2: Extract acronyms (2-6 uppercase letters)
+    acronym_pattern = r'\b[A-Z]{2,6}\b'
+    acronyms = re.findall(acronym_pattern, text)
+    for acronym in acronyms:
+        if acronym not in ['NTT', 'NYC', 'TX', 'AI']:  # Skip location/company acronyms
+            keywords.add(acronym.lower())
+        elif acronym == 'AI':  # AI is a skill
+            keywords.add('ai')
+
+    # Pattern 3: Common technical terms and variations
+    # Process lowercased text with spaCy
+    doc = nlp(text.lower())
+
+    # Technical skill indicators
+    technical_terms = {
+        'python', 'java', 'javascript', 'typescript', 'go', 'rust', 'c++', 'sql',
+        'react', 'angular', 'vue', 'django', 'flask', 'fastapi', 'nest.js', 'next.js',
+        'docker', 'kubernetes', 'aws', 'azure', 'gcp', 'terraform', 'ansible',
+        'langchain', 'langgraph', 'llm', 'llms', 'rag', 'graphrag', 'mlflow', 'mlops',
+        'pytorch', 'tensorflow', 'keras', 'scikit-learn', 'pandas', 'numpy',
+        'api', 'rest', 'graphql', 'microservices', 'serverless',
+        'ci/cd', 'devops', 'git', 'jenkins', 'github', 'gitlab',
+        'mongodb', 'postgresql', 'redis', 'elasticsearch', 'kafka', 'spark',
+        'machine learning', 'deep learning', 'nlp', 'computer vision',
+        'agile', 'scrum', 'testing', 'debugging', 'architecture',
+    }
+
     for token in doc:
-        if token.pos_ in ["NOUN", "PROPN"] and len(token.text) > 2 and not token.is_stop:
+        if token.text in technical_terms:
             keywords.add(token.text)
 
-    # Extract noun chunks (multi-word skills like "machine learning")
-    for chunk in doc.noun_chunks:
-        chunk_text = chunk.text.strip()
-        if len(chunk_text) > 3 and not all(token.is_stop for token in chunk):
-            keywords.add(chunk_text)
+    # Pattern 4: Extract meaningful nouns (but filter generic ones)
+    generic_words = {
+        'ability', 'action', 'individual', 'organization', 'team', 'office', 'basis',
+        'day', 'week', 'year', 'part', 'role', 'position', 'opportunity', 'work',
+        'experience', 'skill', 'requirement', 'duty', 'responsibility', 'task',
+        'project', 'system', 'platform', 'tool', 'framework', 'technology', 'solution',
+        'design', 'development', 'implementation', 'integration', 'deployment',
+    }
+
+    for token in doc:
+        if token.pos_ in ["NOUN", "PROPN"] and len(token.text) > 2:
+            if not token.is_stop and token.text not in generic_words:
+                # Only add if it looks technical (contains letters and optionally numbers)
+                if token.text.replace('-', '').replace('.', '').isalnum():
+                    keywords.add(token.text)
+
+    # Pattern 5: Extract compound technical terms (e.g., "prompt engineering", "vector database")
+    technical_bigrams = {
+        'prompt engineering', 'machine learning', 'deep learning', 'data science',
+        'software engineering', 'cloud computing', 'vector database', 'vector retrieval',
+        'function calling', 'tool calling', 'model deployment', 'model serving',
+        'data pipeline', 'ml pipeline', 'rag pipeline', 'etl pipeline',
+        'ci cd', 'api integration', 'web framework', 'neural network',
+    }
+
+    text_lower = text.lower()
+    for bigram in technical_bigrams:
+        if bigram in text_lower:
+            keywords.add(bigram)
 
     return keywords
 
