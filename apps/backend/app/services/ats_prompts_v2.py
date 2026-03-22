@@ -18,8 +18,8 @@ MAX_RESUME_DATA_CHARS_PHASE1 = 8000  # Resume data shown to Phase 1
 MAX_GAP_ANALYSIS_CHARS_PHASE2 = 4000  # Gap analysis shown to Phase 2
 
 # LLM response token limits
-MAX_TOKENS_PHASE1_ANALYSIS = 10240  # Comprehensive gap analysis
-MAX_TOKENS_PHASE2_ENHANCEMENT = 12288  # Full resume + verification report
+MAX_TOKENS_PHASE1_ANALYSIS = 20480  # Comprehensive gap analysis (increased for large resumes)
+MAX_TOKENS_PHASE2_ENHANCEMENT = 16384  # Full resume + verification report
 
 # Skill addition limits (prevent overwhelming Phase 2)
 MAX_SKILLS_TO_MAKE_EXPLICIT = 30
