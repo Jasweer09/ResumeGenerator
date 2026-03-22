@@ -34,55 +34,100 @@ def _get_nlp():
     return _nlp
 
 
-async def extract_keywords_llm(text: str, context: str = "job description") -> set[str]:
-    """Extract keywords using LLM (God-mode: intelligent, dynamic, domain-agnostic).
+async def extract_keywords_with_variations(text: str, context: str = "job description") -> dict[str, set[str]]:
+    """Extract keywords with variations using LLM (God-mode: handles K8s=Kubernetes, JS=JavaScript).
 
-    Uses AI to intelligently identify actual skills, technologies, tools, and qualifications
-    while filtering out generic words and fluff. Works for ANY domain automatically.
+    Uses AI to extract skills AND generate common variations/synonyms for each.
+    This enables matching even when resume uses abbreviations or alternate terms.
 
     Args:
         text: Text to extract keywords from
         context: "job description" or "resume" for better extraction
 
     Returns:
-        Set of lowercase keywords (skills, technologies, tools)
+        Dict mapping canonical skill -> set of variations
+        Example: {"kubernetes": {"kubernetes", "k8s", "k8"}, "javascript": {"javascript", "js", "ecmascript"}}
     """
     if not text or len(text) < 20:
-        return set()
+        return {}
 
     prompt = f"""Extract all technical skills, technologies, tools, frameworks, programming languages,
-certifications, and specific qualifications from this {context}.
+certifications, and qualifications from this {context}.
+
+For EACH skill, provide the canonical name AND common variations/abbreviations.
 
 RULES:
-1. Extract ONLY actual skills, technologies, and tools (e.g., "Python", "Docker", "LangChain", "RAG", "AWS")
-2. DO NOT extract generic words (e.g., "ability", "experience", "work", "team", "project")
-3. DO NOT extract job requirements language (e.g., "5+ years", "must have", "should be")
-4. DO NOT extract company-specific terms unless they're technologies
-5. Include both full names and common abbreviations (e.g., "Kubernetes" and "K8s")
-6. Include multi-word technical terms (e.g., "machine learning", "prompt engineering")
+1. Extract ONLY actual skills, technologies, and tools
+2. DO NOT extract generic words (e.g., "ability", "experience", "team", "work")
+3. DO NOT extract requirements language (e.g., "5+ years", "must have")
+4. For each skill, include:
+   - Full official name
+   - Common abbreviations (e.g., Kubernetes → K8s, K8)
+   - Alternate spellings/terms
+   - Related terms that mean the same thing
 
 TEXT TO ANALYZE:
 {text[:3000]}
 
-Return a JSON object with a "keywords" array of extracted skills/technologies.
-Example: {{"keywords": ["Python", "Docker", "AWS", "LangChain", "RAG pipeline", "REST API"]}}
+Return JSON with "skills" array. Each skill has "canonical" name and "variations" array.
+Example:
+{{
+  "skills": [
+    {{"canonical": "Kubernetes", "variations": ["Kubernetes", "K8s", "K8", "container orchestration"]}},
+    {{"canonical": "JavaScript", "variations": ["JavaScript", "JS", "ECMAScript", "ES6", "Node.js"]}},
+    {{"canonical": "Machine Learning", "variations": ["Machine Learning", "ML", "machine-learning"]}}
+  ]
+}}
 """
 
     try:
         result = await complete_json(
             prompt=prompt,
-            system_prompt="You are an expert at identifying technical skills and technologies.",
-            max_tokens=2048,
+            system_prompt="You are an expert at identifying technical skills and their variations.",
+            max_tokens=3072,
         )
 
-        keywords_list = result.get('keywords', [])
-        # Normalize to lowercase set
-        return {kw.lower().strip() for kw in keywords_list if kw and len(kw) > 1}
+        # Build canonical -> variations mapping
+        skills_map = {}
+        skills_list = result.get('skills', [])
+
+        for skill_obj in skills_list:
+            canonical = skill_obj.get('canonical', '').lower().strip()
+            variations = skill_obj.get('variations', [])
+
+            if canonical:
+                # Normalize all variations to lowercase
+                variation_set = {v.lower().strip() for v in variations if v}
+                variation_set.add(canonical)  # Include canonical form
+                skills_map[canonical] = variation_set
+
+        return skills_map
 
     except Exception as e:
-        logger.error(f"LLM keyword extraction failed: {e}, falling back to rule-based")
-        # Fallback to rule-based if LLM fails
-        return extract_keywords_fallback(text)
+        logger.error(f"LLM keyword extraction with variations failed: {e}, falling back")
+        # Fallback: extract without variations
+        keywords = extract_keywords_fallback(text)
+        return {kw: {kw} for kw in keywords}  # Each keyword maps to itself only
+
+
+async def extract_keywords_llm(text: str, context: str = "job description") -> set[str]:
+    """Extract keywords using LLM (wrapper for backward compatibility).
+
+    Args:
+        text: Text to extract keywords from
+        context: "job description" or "resume"
+
+    Returns:
+        Set of all keywords (canonical + variations flattened)
+    """
+    skills_map = await extract_keywords_with_variations(text, context)
+
+    # Flatten all variations into single set
+    all_keywords = set()
+    for canonical, variations in skills_map.items():
+        all_keywords.update(variations)
+
+    return all_keywords
 
 
 def extract_keywords_fallback(text: str) -> set[str]:
@@ -274,10 +319,112 @@ def calculate_semantic_similarity(text1: str, text2: str) -> float:
 # Platform-specific scoring algorithms
 
 
+async def score_single_platform_cached(
+    jd_keywords: set[str],
+    resume_keywords: set[str],
+    semantic_similarity: float,
+    format_score: float,
+    platform: ATSPlatform,
+) -> PlatformScore:
+    """Score using pre-extracted keywords (optimized, no redundant LLM calls).
+
+    Args:
+        jd_keywords: Pre-extracted JD keywords (with variations)
+        resume_keywords: Pre-extracted resume keywords (with variations)
+        semantic_similarity: Pre-calculated semantic similarity (0-1)
+        format_score: Pre-calculated format score (0-100)
+        platform: ATS platform to score for
+
+    Returns:
+        PlatformScore with detailed breakdown
+    """
+    # Calculate exact matches
+    exact_matches = jd_keywords & resume_keywords
+    missing = jd_keywords - resume_keywords
+
+    if len(jd_keywords) > 0:
+        keyword_match_pct = (len(exact_matches) / len(jd_keywords)) * 100
+    else:
+        keyword_match_pct = 0.0
+
+    semantic_score_pct = semantic_similarity * 100
+
+    # Platform-specific scoring algorithms
+    if platform == ATSPlatform.TALEO:
+        # Taleo: 80% exact keywords, 20% format (STRICTEST)
+        final_score = (keyword_match_pct * 0.8) + (format_score * 0.2)
+        algorithm = "Literal exact keyword matching"
+
+    elif platform == ATSPlatform.WORKDAY:
+        # Workday: 70% (60% exact + 40% semantic), 30% format
+        keyword_score = (keyword_match_pct * 0.6) + (semantic_score_pct * 0.4)
+        final_score = (keyword_score * 0.7) + (format_score * 0.3)
+        algorithm = "Exact + HiredScore AI (semantic)"
+
+    elif platform == ATSPlatform.ICIMS:
+        # iCIMS: 60% semantic, 40% format (MOST FORGIVING)
+        final_score = (semantic_score_pct * 0.6) + (format_score * 0.4)
+        algorithm = "ML-based semantic matching (most forgiving)"
+
+    elif platform == ATSPlatform.GREENHOUSE:
+        # Greenhouse: 50% semantic, 30% format, 20% human placeholder
+        final_score = (semantic_score_pct * 0.5) + (format_score * 0.3) + (85 * 0.2)
+        algorithm = "LLM-based semantic (human-focused)"
+
+    elif platform == ATSPlatform.LEVER:
+        # Lever: 70% keywords (with stemming), 30% format
+        # Keywords already include variations, so this works well
+        final_score = (keyword_match_pct * 0.7) + (format_score * 0.3)
+        algorithm = "Stemming-based search-dependent"
+
+    elif platform == ATSPlatform.SUCCESSFACTORS:
+        # SuccessFactors: 70% keywords (with taxonomy), 30% format
+        # Variations already handle taxonomy normalization
+        final_score = (keyword_match_pct * 0.7) + (format_score * 0.3)
+        algorithm = "Textkernel taxonomy normalization"
+
+    else:
+        raise ValueError(f"Platform {platform} not supported")
+
+    # Determine strengths and weaknesses
+    strengths = []
+    weaknesses = []
+
+    if keyword_match_pct >= 70:
+        strengths.append("Strong keyword coverage")
+    elif keyword_match_pct < 50:
+        weaknesses.append("Missing many required keywords")
+
+    if semantic_score_pct >= 70:
+        strengths.append("Strong semantic alignment with job requirements")
+    elif semantic_score_pct < 50:
+        weaknesses.append("Weak contextual alignment with job description")
+
+    if format_score >= 85:
+        strengths.append("Excellent ATS-friendly formatting")
+    elif format_score < 75:
+        weaknesses.append("Formatting issues may cause parsing problems")
+
+    return PlatformScore(
+        platform=platform,
+        score=round(final_score, 2),
+        keyword_match=round(keyword_match_pct, 2),
+        format_score=round(format_score, 2),
+        missing_keywords=sorted(list(missing))[:15],
+        matched_keywords=sorted(list(exact_matches))[:15],
+        algorithm=algorithm,
+        strengths=strengths,
+        weaknesses=weaknesses,
+    )
+
+
 async def score_single_platform(
     resume_text: str, job_description: str, platform: ATSPlatform
 ) -> PlatformScore:
-    """Score resume for a specific ATS platform.
+    """Score resume for a specific ATS platform (legacy, extracts keywords per call).
+
+    Note: This is slower than score_all_platforms which extracts once.
+    Use score_all_platforms when scoring multiple platforms.
 
     Args:
         resume_text: Resume content (markdown or plain text)
@@ -287,20 +434,24 @@ async def score_single_platform(
     Returns:
         PlatformScore with detailed breakdown
     """
-    if platform == ATSPlatform.TALEO:
-        return await _score_taleo(resume_text, job_description)
-    elif platform == ATSPlatform.WORKDAY:
-        return await _score_workday(resume_text, job_description)
-    elif platform == ATSPlatform.ICIMS:
-        return await _score_icims(resume_text, job_description)
-    elif platform == ATSPlatform.GREENHOUSE:
-        return await _score_greenhouse(resume_text, job_description)
-    elif platform == ATSPlatform.LEVER:
-        return await _score_lever(resume_text, job_description)
-    elif platform == ATSPlatform.SUCCESSFACTORS:
-        return await _score_successfactors(resume_text, job_description)
-    else:
-        raise ValueError(f"Platform {platform} not supported")
+    # Extract keywords
+    jd_keywords = await extract_keywords_llm(job_description, "job description")
+    resume_keywords = await extract_keywords_llm(resume_text, "resume")
+
+    # Calculate semantic similarity
+    semantic_sim = calculate_semantic_similarity(resume_text, job_description)
+
+    # Calculate format score
+    fmt_score = check_format(resume_text)
+
+    # Use cached scoring function
+    return await score_single_platform_cached(
+        jd_keywords=jd_keywords,
+        resume_keywords=resume_keywords,
+        semantic_similarity=semantic_sim,
+        format_score=fmt_score,
+        platform=platform,
+    )
 
 
 async def _score_taleo(resume_text: str, job_description: str) -> PlatformScore:
@@ -526,6 +677,9 @@ async def score_all_platforms(
 ) -> MultiPlatformScores:
     """Score resume across all 6 ATS platforms.
 
+    GOD-MODE: Extracts keywords ONCE with variations, then scores all platforms.
+    This is 6x faster than extracting per platform.
+
     Args:
         resume_text: Resume content
         job_description: Job description
@@ -534,7 +688,34 @@ async def score_all_platforms(
     Returns:
         MultiPlatformScores with all 6 platform results
     """
-    # Score all 6 platforms
+    logger.info("Extracting keywords with variations (LLM-based, god-mode)...")
+
+    # OPTIMIZATION: Extract keywords ONCE (not 12 times!)
+    # This makes scoring 6x faster and more consistent
+    jd_skills_map = await extract_keywords_with_variations(job_description, "job description")
+    resume_skills_map = await extract_keywords_with_variations(resume_text, "resume")
+
+    # Flatten for backward compatibility
+    jd_keywords_all = set()
+    for variations in jd_skills_map.values():
+        jd_keywords_all.update(variations)
+
+    resume_keywords_all = set()
+    for variations in resume_skills_map.values():
+        resume_keywords_all.update(variations)
+
+    # Pre-calculate semantic similarity (used by multiple platforms)
+    semantic_sim = calculate_semantic_similarity(resume_text, job_description)
+
+    # Pre-calculate format score (used by all platforms)
+    format_score = check_format(resume_text)
+
+    logger.info(
+        f"Keywords extracted: {len(jd_skills_map)} JD skills, {len(resume_skills_map)} resume skills, "
+        f"{len(jd_keywords_all & resume_keywords_all)} matches found"
+    )
+
+    # Score all 6 platforms using pre-extracted data
     platforms_to_score = [
         ATSPlatform.TALEO,
         ATSPlatform.WORKDAY,
@@ -548,11 +729,17 @@ async def score_all_platforms(
 
     for platform in platforms_to_score:
         try:
-            score = await score_single_platform(resume_text, job_description, platform)
+            # Pass pre-extracted data to avoid redundant LLM calls
+            score = await score_single_platform_cached(
+                jd_keywords=jd_keywords_all,
+                resume_keywords=resume_keywords_all,
+                semantic_similarity=semantic_sim,
+                format_score=format_score,
+                platform=platform,
+            )
             scores_dict[platform.value] = score
         except Exception as e:
             logger.error(f"Failed to score platform {platform}: {e}")
-            # Create error placeholder
             scores_dict[platform.value] = PlatformScore(
                 platform=platform,
                 score=0.0,
