@@ -343,6 +343,91 @@ def calculate_semantic_similarity(text1: str, text2: str) -> float:
 # Platform-specific scoring algorithms
 
 
+async def score_single_platform_optimized(
+    keyword_match_pct: float,
+    semantic_similarity: float,
+    format_score: float,
+    platform: ATSPlatform,
+    jd_canonicals: set[str],
+    matched_canonicals: set[str],
+) -> PlatformScore:
+    """Score using pre-calculated metrics (optimized, no redundant calculations).
+
+    Args:
+        keyword_match_pct: Pre-calculated keyword match percentage (canonical-based)
+        semantic_similarity: Pre-calculated semantic similarity (0-1)
+        format_score: Pre-calculated format score (0-100)
+        platform: ATS platform
+        jd_canonicals: JD canonical skills (for missing list)
+        matched_canonicals: Matched canonical skills
+
+    Returns:
+        PlatformScore
+    """
+    semantic_score_pct = semantic_similarity * 100
+    missing_canonicals = jd_canonicals - matched_canonicals
+
+    # Platform-specific scoring algorithms
+    if platform == ATSPlatform.TALEO:
+        final_score = (keyword_match_pct * 0.8) + (format_score * 0.2)
+        algorithm = "Literal exact keyword matching"
+
+    elif platform == ATSPlatform.WORKDAY:
+        keyword_score = (keyword_match_pct * 0.6) + (semantic_score_pct * 0.4)
+        final_score = (keyword_score * 0.7) + (format_score * 0.3)
+        algorithm = "Exact + HiredScore AI (semantic)"
+
+    elif platform == ATSPlatform.ICIMS:
+        final_score = (semantic_score_pct * 0.6) + (format_score * 0.4)
+        algorithm = "ML-based semantic matching (most forgiving)"
+
+    elif platform == ATSPlatform.GREENHOUSE:
+        final_score = (semantic_score_pct * 0.5) + (format_score * 0.3) + (85 * 0.2)
+        algorithm = "LLM-based semantic (human-focused)"
+
+    elif platform == ATSPlatform.LEVER:
+        final_score = (keyword_match_pct * 0.7) + (format_score * 0.3)
+        algorithm = "Stemming-based search-dependent"
+
+    elif platform == ATSPlatform.SUCCESSFACTORS:
+        final_score = (keyword_match_pct * 0.7) + (format_score * 0.3)
+        algorithm = "Textkernel taxonomy normalization"
+
+    else:
+        raise ValueError(f"Platform {platform} not supported")
+
+    # Strengths and weaknesses
+    strengths = []
+    weaknesses = []
+
+    if keyword_match_pct >= 70:
+        strengths.append("Strong keyword coverage")
+    elif keyword_match_pct < 50:
+        weaknesses.append("Missing many required keywords")
+
+    if semantic_score_pct >= 70:
+        strengths.append("Strong semantic alignment")
+    elif semantic_score_pct < 50:
+        weaknesses.append("Weak contextual alignment")
+
+    if format_score >= 85:
+        strengths.append("Excellent ATS-friendly formatting")
+    elif format_score < 75:
+        weaknesses.append("Formatting issues")
+
+    return PlatformScore(
+        platform=platform,
+        score=round(final_score, 2),
+        keyword_match=round(keyword_match_pct, 2),
+        format_score=round(format_score, 2),
+        missing_keywords=sorted(list(missing_canonicals))[:15],
+        matched_keywords=sorted(list(matched_canonicals))[:15],
+        algorithm=algorithm,
+        strengths=strengths,
+        weaknesses=weaknesses,
+    )
+
+
 async def score_single_platform_cached(
     jd_keywords: set[str],
     resume_keywords: set[str],
@@ -733,7 +818,21 @@ async def score_all_platforms(
         logger.info("Extracting resume keywords...")
         resume_skills_map = await extract_keywords_with_variations(resume_text, "resume")
 
-    # Flatten for backward compatibility
+    # Match CANONICAL skills (not individual variations)
+    # This gives accurate percentages based on actual skills, not variation counts
+    jd_canonicals = set(jd_skills_map.keys())
+    resume_canonicals = set(resume_skills_map.keys())
+
+    # Find which canonical skills match (any variation overlap = match)
+    matched_canonicals = set()
+    for jd_canonical, jd_variations in jd_skills_map.items():
+        for resume_canonical, resume_variations in resume_skills_map.items():
+            # If any variations overlap, the skills match
+            if jd_variations & resume_variations:
+                matched_canonicals.add(jd_canonical)
+                break
+
+    # Also flatten for detailed matching (for missing/matched keyword lists)
     jd_keywords_all = set()
     for variations in jd_skills_map.values():
         jd_keywords_all.update(variations)
@@ -749,11 +848,17 @@ async def score_all_platforms(
     format_score = check_format(resume_text)
 
     logger.info(
-        f"Keywords extracted: {len(jd_skills_map)} JD skills, {len(resume_skills_map)} resume skills, "
-        f"{len(jd_keywords_all & resume_keywords_all)} matches found"
+        f"Keywords extracted: {len(jd_canonicals)} JD skills, {len(resume_canonicals)} resume skills, "
+        f"{len(matched_canonicals)} canonical matches ({len(matched_canonicals)/len(jd_canonicals)*100:.1f}%)"
     )
 
-    # Score all 6 platforms using pre-extracted data
+    # Calculate keyword match percentage (CANONICAL-based, not variation-based!)
+    if len(jd_canonicals) > 0:
+        keyword_match_percentage = (len(matched_canonicals) / len(jd_canonicals)) * 100
+    else:
+        keyword_match_percentage = 0.0
+
+    # Score all 6 platforms using pre-calculated data
     platforms_to_score = [
         ATSPlatform.TALEO,
         ATSPlatform.WORKDAY,
@@ -767,13 +872,14 @@ async def score_all_platforms(
 
     for platform in platforms_to_score:
         try:
-            # Pass pre-extracted data to avoid redundant LLM calls
-            score = await score_single_platform_cached(
-                jd_keywords=jd_keywords_all,
-                resume_keywords=resume_keywords_all,
+            # Pass canonical-based match percentage (accurate!)
+            score = await score_single_platform_optimized(
+                keyword_match_pct=keyword_match_percentage,
                 semantic_similarity=semantic_sim,
                 format_score=format_score,
                 platform=platform,
+                jd_canonicals=jd_canonicals,
+                matched_canonicals=matched_canonicals,
             )
             scores_dict[platform.value] = score
         except Exception as e:
