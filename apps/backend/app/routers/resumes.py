@@ -592,37 +592,31 @@ async def upload_resume(file: UploadFile = File(...)) -> ResumeUploadResponse:
         resume["processed_data"] = processed_data
         resume["processing_status"] = "ready"
 
-        # OPTIMIZATION: Extract keywords from master resume for caching (ASYNC, NON-BLOCKING)
-        # Only for master resumes to avoid unnecessary extractions
-        # This runs in background and NEVER blocks the upload
+        # OPTIMIZATION: Extract keywords from master resume for caching
+        # Only for master resumes, runs synchronously to ensure completion
         if resume.get("is_master"):
-            import asyncio
+            try:
+                from app.services.parser import extract_and_cache_resume_keywords
 
-            async def background_extract():
-                try:
-                    from app.services.parser import extract_and_cache_resume_keywords
+                logger.info(f"Extracting keywords for master resume {resume['resume_id']}...")
+                cached_keywords = await extract_and_cache_resume_keywords(
+                    markdown_content, resume["resume_id"]
+                )
 
-                    cached_keywords = await extract_and_cache_resume_keywords(
-                        markdown_content, resume["resume_id"]
+                if cached_keywords:
+                    db.update_resume(
+                        resume["resume_id"],
+                        {"extracted_keywords": cached_keywords},
                     )
-
-                    if cached_keywords:
-                        db.update_resume(
-                            resume["resume_id"],
-                            {"extracted_keywords": cached_keywords},
-                        )
-                        logger.info(
-                            f"Keywords cached for master resume {resume['resume_id']}: "
-                            f"{cached_keywords.get('total_skills', 0)} skills"
-                        )
-                except Exception as e:
-                    logger.warning(
-                        f"Background keyword extraction failed for {resume['resume_id']}: {e}. "
-                        "Keywords will be extracted on-demand during optimization."
+                    logger.info(
+                        f"Keywords cached successfully: {cached_keywords.get('total_skills', 0)} skills"
                     )
-
-            # Fire and forget - don't wait for completion
-            asyncio.create_task(background_extract())
+            except Exception as e:
+                # CRITICAL: Log error but don't fail upload
+                logger.warning(
+                    f"Keyword extraction failed (non-critical): {e}. "
+                    "Upload succeeded. Keywords will be extracted on-demand."
+                )
 
     except Exception as e:
         # LLM parsing failed, update status to failed
