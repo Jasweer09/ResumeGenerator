@@ -150,7 +150,7 @@ async def optimize_resume(request: OptimizeResumeRequest):
                 detail="Resume must be processed before optimization",
             )
 
-        # Run full optimization pipeline
+        # Run full optimization pipeline (pass resume_record for cached keywords)
         result = await ats_optimizer.optimize_resume_for_platform(
             resume_data=resume_data,
             resume_markdown=resume_markdown,
@@ -161,6 +161,7 @@ async def optimize_resume(request: OptimizeResumeRequest):
             language=request.language,
             max_iterations=request.max_refinement_iterations,
             score_threshold=request.score_threshold,
+            resume_record=resume_record,  # NEW: Pass for cached keywords
         )
 
         # Save optimized resume to database

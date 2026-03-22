@@ -591,6 +591,34 @@ async def upload_resume(file: UploadFile = File(...)) -> ResumeUploadResponse:
         )
         resume["processed_data"] = processed_data
         resume["processing_status"] = "ready"
+
+        # OPTIMIZATION: Extract keywords from master resume for caching
+        # Only for master resumes to avoid unnecessary extractions
+        if resume.get("is_master"):
+            try:
+                from app.services.parser import extract_and_cache_resume_keywords
+
+                cached_keywords = await extract_and_cache_resume_keywords(
+                    markdown_content, resume["resume_id"]
+                )
+
+                if cached_keywords:
+                    # Store cached keywords (non-critical, don't fail upload if this fails)
+                    db.update_resume(
+                        resume["resume_id"],
+                        {"extracted_keywords": cached_keywords},
+                    )
+                    logger.info(
+                        f"Keywords cached for master resume {resume['resume_id']}: "
+                        f"{cached_keywords.get('total_skills', 0)} skills"
+                    )
+            except Exception as e:
+                # EDGE CASE: Extraction failed - log but don't block upload
+                logger.warning(
+                    f"Keyword extraction failed for master resume {resume['resume_id']}: {e}. "
+                    "Keywords will be extracted on-demand during optimization."
+                )
+
     except Exception as e:
         # LLM parsing failed, update status to failed
         logger.warning(f"Resume parsing to JSON failed for {file.filename}: {e}")

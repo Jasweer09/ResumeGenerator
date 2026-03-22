@@ -176,6 +176,81 @@ def should_continue_refining(
     return False, "Insufficient improvement to justify another iteration"
 
 
+async def get_cached_resume_keywords(
+    resume_record: dict[str, Any],
+    resume_text: str,
+) -> dict[str, set[str]]:
+    """Get cached resume keywords or extract on-demand with full edge case handling.
+
+    Edge cases handled:
+    1. No cached keywords (first upload, old resume) → Extract on-demand
+    2. Cached keywords corrupted/invalid → Extract on-demand
+    3. Extraction version mismatch → Re-extract
+    4. Extraction fails → Return empty dict (graceful degradation)
+
+    Args:
+        resume_record: Full resume record from database
+        resume_text: Resume text content
+
+    Returns:
+        Dict mapping canonical skill → set of variations
+    """
+    from app.services.ats_scorer import extract_keywords_with_variations
+
+    cached_data = resume_record.get("extracted_keywords")
+
+    # EDGE CASE 1: No cached keywords (first upload, migration, old resume)
+    if not cached_data:
+        logger.warning(
+            f"No cached keywords for resume {resume_record.get('resume_id')}, "
+            "extracting on-demand..."
+        )
+        try:
+            return await extract_keywords_with_variations(resume_text, "resume")
+        except Exception as e:
+            logger.error(f"On-demand extraction failed: {e}")
+            return {}  # Empty dict = graceful degradation
+
+    # EDGE CASE 2: Validate cache structure
+    if not isinstance(cached_data, dict) or "skills" not in cached_data:
+        logger.warning("Cached keywords corrupted, re-extracting...")
+        try:
+            return await extract_keywords_with_variations(resume_text, "resume")
+        except Exception as e:
+            logger.error(f"Re-extraction failed: {e}")
+            return {}
+
+    # EDGE CASE 3: Check extraction version (re-extract if outdated)
+    CURRENT_VERSION = "1.0"  # Must match KEYWORD_EXTRACTION_VERSION in parser.py
+    cached_version = cached_data.get("extraction_version", "0.0")
+    if cached_version != CURRENT_VERSION:
+        logger.info(
+            f"Extraction version mismatch ({cached_version} vs {CURRENT_VERSION}), "
+            "re-extracting with latest algorithm..."
+        )
+        try:
+            return await extract_keywords_with_variations(resume_text, "resume")
+        except Exception as e:
+            logger.error(f"Version upgrade extraction failed: {e}, using cached")
+            # Fall through to use old cache if extraction fails
+
+    # SUCCESS: Use cached keywords
+    logger.info(
+        f"Using cached keywords: {cached_data.get('total_skills', 0)} skills "
+        f"(extracted at {cached_data.get('extracted_at', 'unknown')})"
+    )
+
+    # Convert cached format back to dict[str, set[str]]
+    skills_map = {}
+    for skill_obj in cached_data.get("skills", []):
+        canonical = skill_obj.get("canonical", "")
+        variations = skill_obj.get("variations", [])
+        if canonical and variations:
+            skills_map[canonical.lower()] = {v.lower() for v in variations}
+
+    return skills_map
+
+
 async def optimize_resume_for_platform(
     resume_data: dict[str, Any],
     resume_markdown: str,
@@ -186,15 +261,17 @@ async def optimize_resume_for_platform(
     language: str = "en",
     max_iterations: int = 2,
     score_threshold: float = 85.0,
+    resume_record: dict[str, Any] | None = None,
 ) -> ATSOptimizationResult:
     """Optimize resume for specific ATS platform.
 
     Full pipeline:
     1. Detect platform (if not specified)
-    2. Generate optimized resume with platform-specific prompts
-    3. Score across all platforms
-    4. Adaptive refinement if needed
-    5. Return final result with full analysis
+    2. Get cached resume keywords (or extract on-demand)
+    3. Generate optimized resume with platform-specific prompts
+    4. Score across all platforms (using cached keywords)
+    5. Adaptive refinement if needed
+    6. Return final result with full analysis
 
     Args:
         resume_data: Structured resume data
@@ -206,12 +283,27 @@ async def optimize_resume_for_platform(
         language: Output language
         max_iterations: Max refinement iterations
         score_threshold: Minimum acceptable score
+        resume_record: Optional full resume record (for cached keywords)
 
     Returns:
         ATSOptimizationResult with final resume and scores
     """
     start_time = time.time()
     detected_platform: PlatformDetection | None = None
+
+    # OPTIMIZATION: Get cached resume keywords (extract once, reuse everywhere)
+    logger.info("Loading resume keywords (cached or on-demand)...")
+    if resume_record:
+        resume_keywords_cached = await get_cached_resume_keywords(resume_record, resume_markdown)
+    else:
+        # EDGE CASE: No resume_record provided (fallback)
+        logger.warning("No resume_record provided, extracting keywords on-demand")
+        from app.services.ats_scorer import extract_keywords_with_variations
+        try:
+            resume_keywords_cached = await extract_keywords_with_variations(resume_markdown, "resume")
+        except Exception as e:
+            logger.error(f"Resume keyword extraction failed: {e}")
+            resume_keywords_cached = {}  # Empty = graceful degradation
 
     # Step 1: Detect platform if not specified
     if target_platform is None or target_platform == ATSPlatform.AUTO:
@@ -252,10 +344,15 @@ async def optimize_resume_for_platform(
     # Step 4: Score initial result
     logger.info("Scoring optimized resume across all platforms...")
     optimized_text = convert_resume_data_to_text(optimized_data)
+
+    # OPTIMIZATION: Use cached keywords from master resume
+    # After LLM optimization, content is similar enough to use cached keywords
+    # This saves 1 LLM call per optimization
     initial_scores = await ats_scorer.score_all_platforms(
         resume_text=optimized_text,
         job_description=job_description,
         target_platform=target_platform,
+        cached_resume_keywords=resume_keywords_cached if resume_keywords_cached else None,
     )
 
     # Step 5: Adaptive refinement decision
@@ -297,12 +394,13 @@ async def optimize_resume_for_platform(
                 max_tokens=8192,
             )
 
-            # Re-score
+            # Re-score (still using cached keywords - refinement doesn't change core skills)
             refined_text = convert_resume_data_to_text(refined_data)
             refined_scores = await ats_scorer.score_all_platforms(
                 resume_text=refined_text,
                 job_description=job_description,
                 target_platform=target_platform,
+                cached_resume_keywords=resume_keywords_cached if resume_keywords_cached else None,
             )
 
             new_score = refined_scores.scores[target_platform.value].score

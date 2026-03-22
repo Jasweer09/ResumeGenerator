@@ -3,6 +3,7 @@
 import logging
 import re
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,9 @@ from app.prompts.templates import RESUME_SCHEMA_EXAMPLE
 from app.schemas import ResumeData
 
 logger = logging.getLogger(__name__)
+
+# Keyword extraction version for cache invalidation
+KEYWORD_EXTRACTION_VERSION = "1.0"
 
 # Matches date ranges like "Jan 2020 - Dec 2023", "May 2021 - Present",
 # "January 2020 - Current", and single dates like "Jun 2023".
@@ -166,6 +170,63 @@ async def parse_resume_to_json(markdown_text: str) -> dict[str, Any]:
 
     # Patch dates: restore months the LLM may have dropped
     result = restore_dates_from_markdown(result, markdown_text)
+
+
+async def extract_and_cache_resume_keywords(
+    resume_text: str,
+    resume_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Extract keywords from resume and prepare for caching.
+
+    This should be called:
+    - When master resume is uploaded (once)
+    - When master resume is edited (update)
+    - NOT during tailoring (use cached version)
+
+    Args:
+        resume_text: Resume content (markdown)
+        resume_id: Optional resume ID for logging
+
+    Returns:
+        Cached keywords dict or None if extraction fails
+    """
+    try:
+        # Import here to avoid circular dependency
+        from app.services.ats_scorer import extract_keywords_with_variations
+
+        logger.info(f"Extracting keywords for caching (resume_id: {resume_id or 'new'})...")
+
+        # Extract keywords with variations
+        skills_map = await extract_keywords_with_variations(resume_text, "resume")
+
+        # Build cache structure
+        cached_data = {
+            "skills": [
+                {
+                    "canonical": canonical,
+                    "variations": list(variations),
+                }
+                for canonical, variations in skills_map.items()
+            ],
+            "extracted_at": datetime.utcnow().isoformat(),
+            "extraction_version": KEYWORD_EXTRACTION_VERSION,
+            "total_skills": len(skills_map),
+        }
+
+        logger.info(
+            f"Keywords extracted successfully: {len(skills_map)} skills with variations "
+            f"(resume_id: {resume_id or 'new'})"
+        )
+
+        return cached_data
+
+    except Exception as e:
+        # CRITICAL: Don't fail upload if extraction fails
+        logger.error(
+            f"Failed to extract keywords for caching (resume_id: {resume_id or 'new'}): {e}. "
+            "Upload will proceed without cached keywords."
+        )
+        return None
 
     # Validate against schema
     validated = ResumeData.model_validate(result)
