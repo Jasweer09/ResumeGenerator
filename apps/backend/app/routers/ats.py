@@ -164,7 +164,7 @@ async def optimize_resume(request: OptimizeResumeRequest):
         )
 
         # Save optimized resume to database
-        optimized_resume_id = db.create_resume(
+        optimized_resume_record = db.create_resume(
             content=resume_markdown,  # Keep original markdown, processed_data has optimized version
             content_type="text/markdown",
             filename=f"{resume_record.get('filename', 'resume')}_optimized_{result.target_platform.value}.md",
@@ -172,11 +172,19 @@ async def optimize_resume(request: OptimizeResumeRequest):
             processed_data=result.resume_data,
         )
 
+        # Extract resume ID from record
+        optimized_resume_id = optimized_resume_record.get('resume_id')
+        if not optimized_resume_id:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create optimized resume record",
+            )
+
         # Update result with new resume ID
         result.resume_id = optimized_resume_id
 
         # Store ATS optimization metadata
-        if optimized_resume_id:
+        try:
             db.update_resume(
                 optimized_resume_id,
                 {
@@ -189,6 +197,9 @@ async def optimize_resume(request: OptimizeResumeRequest):
                     }
                 },
             )
+        except Exception as e:
+            # Log warning but don't fail the request - metadata is optional
+            logger.warning(f"Failed to save ATS metadata: {e}")
 
         return OptimizeResumeResponse(
             success=True,

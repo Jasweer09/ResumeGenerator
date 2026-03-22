@@ -88,14 +88,17 @@ export default function TailorPage() {
           company_name: companyName || undefined,
         });
 
-        setDetectedPlatform(response.detection);
+        if (response && response.detection) {
+          setDetectedPlatform(response.detection);
 
-        // Auto-select detected platform if user hasn't manually chosen
-        if (selectedPlatform === 'auto') {
-          setSelectedPlatform(response.detection.platform);
+          // Auto-select detected platform if user hasn't manually chosen
+          if (selectedPlatform === 'auto' && response.detection.platform) {
+            setSelectedPlatform(response.detection.platform);
+          }
         }
       } catch (err) {
         console.error('Platform detection failed:', err);
+        // Silently fail - detection is optional
       }
     };
 
