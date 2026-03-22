@@ -9,8 +9,22 @@ This module implements a universal prompt engineering solution that:
 """
 
 import json
+import re
 from typing import Any
 from app.schemas.ats_models import ATSPlatform
+
+# Prompt truncation limits (prevent token overflow)
+MAX_RESUME_DATA_CHARS_PHASE1 = 8000  # Resume data shown to Phase 1
+MAX_GAP_ANALYSIS_CHARS_PHASE2 = 4000  # Gap analysis shown to Phase 2
+
+# LLM response token limits
+MAX_TOKENS_PHASE1_ANALYSIS = 10240  # Comprehensive gap analysis
+MAX_TOKENS_PHASE2_ENHANCEMENT = 12288  # Full resume + verification report
+
+# Skill addition limits (prevent overwhelming Phase 2)
+MAX_SKILLS_TO_MAKE_EXPLICIT = 30
+MAX_SKILLS_TO_ADD_NEW = 50
+MAX_SKILLS_TO_BOOST = 20
 
 
 # Platform-specific optimization strategies
@@ -117,7 +131,7 @@ TARGET PLATFORM: {platform_info['name']}
 SCORING ALGORITHM: {platform_info['algorithm']}
 
 ORIGINAL RESUME:
-{json.dumps(original_resume_data, indent=2)[:8000]}
+{json.dumps(original_resume_data, indent=2)[:MAX_RESUME_DATA_CHARS_PHASE1]}
 
 CURRENT RESUME STATS:
 • Technical Skills in array: {original_skill_count} skills
@@ -339,7 +353,7 @@ MINIMUM ENHANCED COUNT: {original_skill_count} (same or higher, NEVER lower!)
 GAP ANALYSIS (Your Enhancement Instructions)
 ═══════════════════════════════════════════════════════════════════════════
 
-{json.dumps(gap_analysis, indent=2)[:4000]}
+{json.dumps(gap_analysis, indent=2)[:MAX_GAP_ANALYSIS_CHARS_PHASE2]}
 
 SKILLS TO MAKE EXPLICIT (already implied, just state clearly):
 {json.dumps(make_explicit, indent=2)}
@@ -527,19 +541,54 @@ BEGIN ENHANCEMENT (JSON only):
     return prompt
 
 
-def extract_skills_from_resume_data(resume_data: dict[str, Any]) -> list[str]:
-    """Helper to extract all skills from resume data for counting."""
-    skills = []
+def validate_gap_analysis_structure(gap_analysis: dict) -> tuple[bool, str]:
+    """Validate gap analysis has required structure.
 
-    # From technicalSkills
-    skills.extend(resume_data.get('additional', {}).get('technicalSkills', []))
+    Returns:
+        (is_valid, error_message)
+    """
+    required_keys = ["step1_resume_inventory", "step3_gap_analysis", "step4_integration_plan", "summary"]
 
-    # From work experience (extract capitalized terms and technical words)
-    for job in resume_data.get('workExperience', []):
-        for bullet in job.get('description', []):
-            # Simple extraction - capitalize terms and known technologies
-            import re
-            tech_words = re.findall(r'\b[A-Z][a-zA-Z0-9]*(?:\.[a-zA-Z0-9]+)?', bullet)
-            skills.extend([w for w in tech_words if len(w) > 2])
+    for key in required_keys:
+        if key not in gap_analysis:
+            return False, f"Missing required key: {key}"
 
-    return list(set(skills))  # Deduplicate
+    # Validate step3_gap_analysis is list
+    if not isinstance(gap_analysis["step3_gap_analysis"], list):
+        return False, "step3_gap_analysis must be a list"
+
+    # Validate step4_integration_plan structure
+    plan = gap_analysis["step4_integration_plan"]
+    if not isinstance(plan, dict):
+        return False, "step4_integration_plan must be a dict"
+
+    plan_keys = ["make_explicit", "add_new", "boost_visibility"]
+    for key in plan_keys:
+        if key not in plan:
+            return False, f"step4_integration_plan missing key: {key}"
+        if not isinstance(plan[key], list):
+            return False, f"step4_integration_plan.{key} must be a list"
+
+    return True, "Valid"
+
+
+def limit_integration_plan(gap_analysis: dict) -> dict:
+    """Limit integration plan to prevent overwhelming Phase 2.
+
+    Args:
+        gap_analysis: Gap analysis from Phase 1
+
+    Returns:
+        Gap analysis with limited integration plan
+    """
+    plan = gap_analysis.get("step4_integration_plan", {})
+
+    # Limit each category to prevent prompt overflow
+    limited_plan = {
+        "make_explicit": plan.get("make_explicit", [])[:MAX_SKILLS_TO_MAKE_EXPLICIT],
+        "add_new": plan.get("add_new", [])[:MAX_SKILLS_TO_ADD_NEW],
+        "boost_visibility": plan.get("boost_visibility", [])[:MAX_SKILLS_TO_BOOST],
+    }
+
+    gap_analysis["step4_integration_plan"] = limited_plan
+    return gap_analysis
