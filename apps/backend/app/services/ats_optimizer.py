@@ -339,139 +339,24 @@ async def optimize_resume_for_platform(
 
     logger.info(f"Extracted {len(jd_skills_map)} skills with variations from job description")
 
-    # Step 3: GOD-MODE Two-Phase Optimization with Bulletproof Error Handling
-    logger.info(f"Starting god-mode two-phase optimization for {target_platform.value}...")
+    # Step 3: Generate optimized resume with scoring-aware prompt
+    logger.info(f"Generating resume optimized for {target_platform.value}...")
 
-    # Import new god-mode prompts and utilities
-    from app.services import ats_prompts_v2
-    import copy
-
-    # Backup original resume (rollback protection)
-    original_resume_backup = copy.deepcopy(resume_data)
-
-    # PHASE 1: Gap Analysis (Find what's missing without modifying)
-    logger.info("Phase 1: Analyzing skill gaps (no modification)...")
-
-    try:
-        phase1_prompt = ats_prompts_v2.generate_phase1_gap_analysis_prompt(
-            original_resume_data=resume_data,
-            original_resume_text=resume_markdown,
-            jd_skills_with_variations=jd_skills_map,
-            target_platform=target_platform,
-            language=language,
-        )
-
-        gap_analysis = await complete_json(
-            prompt=phase1_prompt,
-            system_prompt="You are a precise resume analyzer. Extract comprehensively and truthfully. Return valid JSON.",
-            max_tokens=ats_prompts_v2.MAX_TOKENS_PHASE1_ANALYSIS,
-        )
-
-        # Validate Phase 1 structure
-        is_valid, error_msg = ats_prompts_v2.validate_gap_analysis_structure(gap_analysis)
-
-        if not is_valid:
-            logger.warning(f"Gap analysis validation failed: {error_msg}")
-            raise ValueError(f"Invalid gap analysis structure: {error_msg}")
-
-        # Limit integration plan to prevent overwhelming Phase 2
-        gap_analysis = ats_prompts_v2.limit_integration_plan(gap_analysis)
-
-        logger.info(
-            f"Phase 1 complete: {gap_analysis.get('summary', {}).get('original_skills', 0)} skills in resume, "
-            f"{gap_analysis.get('summary', {}).get('addable', 0)} skills can be added"
-        )
-
-    except Exception as e:
-        logger.error(f"Phase 1 failed: {e}")
-        logger.warning("FALLBACK: Using simple optimization without gap analysis")
-
-        # Create minimal gap analysis for Phase 2 to continue
-        gap_analysis = {
-            "step1_resume_inventory": {"skills_found": [], "total_skills_in_resume": 0},
-            "step3_gap_analysis": [],
-            "step4_integration_plan": {
-                "make_explicit": [],
-                "add_new": [],
-                "boost_visibility": []
-            },
-            "summary": {"original_skills": 0, "addable": 0}
-        }
-        logger.info("Proceeding with basic enhancement (no detailed gap analysis)")
-
-    # PHASE 2: Surgical Integration (Add missing skills, preserve everything)
-    # OPTIMIZATION: Skip Phase 2 if no changes needed
-    plan = gap_analysis.get("step4_integration_plan", {})
-    total_changes = (
-        len(plan.get("make_explicit", [])) +
-        len(plan.get("add_new", [])) +
-        len(plan.get("boost_visibility", []))
+    # GOD-MODE: Enhanced prompt that explains HOW resume will be scored
+    optimization_prompt = ats_prompts.generate_scoring_aware_prompt(
+        platform=target_platform,
+        job_description=job_description,
+        jd_skills_with_variations=jd_skills_map,
+        original_resume=resume_data,
+        language=language,
     )
 
-    if total_changes == 0:
-        logger.info("Resume already optimal - skipping Phase 2 (saving LLM call and ~$0.04)")
-        optimized_data = resume_data
-    else:
-        logger.info(f"Phase 2: Surgical skill integration ({total_changes} improvements)...")
-
-        try:
-            phase2_prompt = ats_prompts_v2.generate_phase2_surgical_integration_prompt(
-                original_resume_data=resume_data,
-                gap_analysis=gap_analysis,
-                jd_skills_with_variations=jd_skills_map,
-                target_platform=target_platform,
-                language=language,
-            )
-
-            enhanced_result = await complete_json(
-                prompt=phase2_prompt,
-                system_prompt="You are an expert resume enhancer. Preserve ALL original content while adding skills. Return valid JSON.",
-                max_tokens=ats_prompts_v2.MAX_TOKENS_PHASE2_ENHANCEMENT,
-            )
-
-            # Validate Phase 2 output exists
-            if not enhanced_result or not enhanced_result.get("enhanced_resume"):
-                raise ValueError("Enhancement failed - no resume in response")
-
-            verification = enhanced_result.get("verification_report", {})
-
-            # CRITICAL VERIFICATION with Type Safety
-            skills_removed = verification.get("skills_removed", 0)
-            # Handle string/int type coercion
-            if isinstance(skills_removed, str):
-                skills_removed = int(skills_removed) if skills_removed.isdigit() else 0
-
-            if skills_removed > 0:
-                raise ValueError(f"Preservation law violated - {skills_removed} skills removed")
-
-            preservation_rate = str(verification.get("preservation_rate", "0%"))
-            if preservation_rate != "100%":
-                logger.warning(f"Preservation rate {preservation_rate} != 100%")
-                raise ValueError(f"Preservation incomplete: {preservation_rate}")
-
-            # Validate enhanced skill count increased
-            orig_count = verification.get("original_skill_count", 0)
-            enhanced_count = verification.get("enhanced_skill_count", 0)
-
-            if isinstance(enhanced_count, str):
-                enhanced_count = int(enhanced_count) if enhanced_count.isdigit() else 0
-
-            if enhanced_count < orig_count:
-                raise ValueError(f"Skill count decreased: {orig_count} → {enhanced_count}")
-
-            # All validations passed!
-            optimized_data = enhanced_result["enhanced_resume"]
-
-            logger.info(
-                f"Phase 2 SUCCESS: {orig_count} → {enhanced_count} skills "
-                f"({verification.get('skills_added', 0)} added, 0 removed, 100% preserved)"
-            )
-
-        except Exception as e:
-            logger.error(f"Phase 2 failed: {e}")
-            logger.warning("ROLLBACK: Using original resume (preservation guaranteed)")
-            optimized_data = original_resume_backup
-            logger.info("Optimization fell back to original resume - user data preserved")
+    optimized_data = await complete_json(
+        prompt=optimization_prompt,
+        system_prompt=f"You are an expert resume optimizer for {target_platform.value} ATS systems. "
+                      f"You understand how ATS scoring algorithms work and optimize accordingly.",
+        max_tokens=8192,
+    )
 
     # Step 4: Score initial result
     logger.info("Scoring optimized resume across all platforms...")
