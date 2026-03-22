@@ -504,3 +504,9 @@ def generate_optimization_prompt(
     original_resume: str | dict[str, Any],
     language: str = "en",
 ) -> str:
+    """Legacy function - delegates to generate_scoring_aware_prompt."""
+    # Convert to new format and delegate
+    jd_skills_map = {}
+    for skill in job_keywords.get("required_skills", []):
+        jd_skills_map[str(skill).lower()] = {str(skill).lower()}
+    return generate_scoring_aware_prompt(platform, job_description, jd_skills_map, original_resume, language)
