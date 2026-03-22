@@ -581,7 +581,15 @@ async def upload_resume(file: UploadFile = File(...)) -> ResumeUploadResponse:
 
     # Try to parse to structured JSON (optional, may fail if LLM not configured)
     try:
+        logger.info(f"Parsing resume to JSON for {file.filename}...")
         processed_data = await parse_resume_to_json(markdown_content)
+
+        logger.info(f"Parsing completed. Has data: {bool(processed_data)}")
+
+        if not processed_data:
+            logger.warning(f"parse_resume_to_json returned None/empty for {file.filename}")
+            raise ValueError("Parsing returned no data")
+
         db.update_resume(
             resume["resume_id"],
             {
@@ -591,6 +599,7 @@ async def upload_resume(file: UploadFile = File(...)) -> ResumeUploadResponse:
         )
         resume["processed_data"] = processed_data
         resume["processing_status"] = "ready"
+        logger.info(f"Resume {resume['resume_id']} marked as ready with processed_data")
 
         # OPTIMIZATION: Extract keywords from master resume for caching
         # Only for master resumes, runs synchronously to ensure completion
