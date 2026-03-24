@@ -183,9 +183,70 @@ def generate_section_by_section_prompt(
     work_experience = original_resume.get('workExperience', [])
     total_bullets = sum(len(job.get('description', [])) for job in work_experience)
 
-    prompt = f"""You are enhancing a resume by adding missing skills. Work section-by-section systematically.
+    # Platform-specific scoring algorithms (for reference in prompt)
+    platform_algorithms = {
+        'taleo': '80% exact keywords + 20% format (KEYWORD-HEAVY)',
+        'workday': '70% (60% exact + 40% semantic) + 30% format (BALANCED)',
+        'icims': '60% semantic + 40% format (SEMANTIC-HEAVY)',
+        'greenhouse': '50% semantic + 30% format + 20% human (HUMAN-FOCUSED)',
+        'lever': '70% keywords with stemming + 30% format (VARIATION-FRIENDLY)',
+        'successfactors': '70% canonical keywords + 30% format (EXACT NAMES)'
+    }
 
+    # Platform-specific enhancement strategies
+    platform_strategy = {
+        'taleo': """TALEO STRATEGY (Keyword-Heavy):
+• Use EXACT skill names (Docker, not containerization)
+• Repeat top 10 skills 2-3 times across resume
+• Add to: Skills array (priority), Summary, First 2 bullets of each job
+• Example: "Deployed using Docker" AND "Docker containerization" AND skills array""",
+
+        'workday': """WORKDAY STRATEGY (Balanced):
+• Use exact keywords WITH context
+• Show skills in action: "Built X using Y, achieving Z%"
+• Add metrics when enhancing bullets
+• Balance: keyword visibility + semantic meaning""",
+
+        'icims': """iCIMS STRATEGY (Semantic-Heavy):
+• Demonstrate skills through achievements
+• "Architected microservices platform using Docker, Kubernetes, reducing costs 40%"
+• Context matters more than keyword count
+• Natural integration in stories""",
+
+        'greenhouse': """GREENHOUSE STRATEGY (Human-Focused):
+• Write for humans first, ATS second
+• Achievement narratives with impact
+• "Led team to migrate to Kubernetes, improving deployment speed 10x"
+• Readable, compelling, keyword-enriched""",
+
+        'lever': """LEVER STRATEGY (Variation-Friendly):
+• Use skills in different forms: "Docker", "containerization", "Docker deployment"
+• Variations help matching
+• Add both full names and abbreviations""",
+
+        'successfactors': """SUCCESSFACTORS STRATEGY (Exact Names):
+• Use official canonical names: "Kubernetes" not "K8s"
+• "Amazon Web Services (AWS)" not "AWS"
+• Full certification titles
+• Consistent terminology"""
+    }
+
+    platform_algo = platform_algorithms.get(target_platform.lower(), platform_algorithms['taleo'])
+    platform_strat = platform_strategy.get(target_platform.lower(), platform_strategy['taleo'])
+
+    prompt = f"""You are enhancing a resume for {target_platform.upper()} ATS. Work section-by-section systematically.
+
+════════════════════════════════════════════════════════════════════════════════
+TARGET PLATFORM SCORING: {target_platform.upper()}
+════════════════════════════════════════════════════════════════════════════════
+
+HOW YOU WILL BE SCORED: {platform_algo}
+
+{platform_strat}
+
+════════════════════════════════════════════════════════════════════════════════
 CRITICAL: This is ADDITION ONLY. Preserve all existing content.
+════════════════════════════════════════════════════════════════════════════════
 
 ════════════════════════════════════════════════════════════════════════════════
 MISSING SKILLS TO ADD ({len(missing_skills_sorted)} skills for {target_platform.upper()}):
@@ -229,19 +290,37 @@ Instructions:
 3. Make it flow naturally
 
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ [TASK 3] ENHANCE WORK EXPERIENCE (Selective bullet enhancement)             │
+│ [TASK 3] ENHANCE WORK EXPERIENCE (Precise bullet enhancement)               │
 └──────────────────────────────────────────────────────────────────────────────┘
 
 Total bullets: {total_bullets}
 
-Action: For EACH bullet, add relevant missing skill keywords where applicable
+Action: Enhance bullets by adding missing skill keywords WHERE THEY FIT NATURALLY
+
+MATCHING GUIDE (Skill → Relevant Bullets):
+• Docker/Kubernetes → deployment, infrastructure, containerization bullets
+• LangChain/LangGraph → chatbot, agent, LLM, AI system bullets
+• AWS/Azure/GCP → cloud, deployment, infrastructure bullets
+• RAG/Vector DB → search, retrieval, knowledge base bullets
+• CI/CD/Jenkins → automation, deployment pipeline bullets
+• React/Frontend → UI, dashboard, web application bullets
+
+ENHANCEMENT RULES PER PLATFORM:
+• {target_platform.upper()}: {platform_strat.split('•')[1].strip() if '•' in platform_strat else 'Use exact keywords'}
+
+EXAMPLES (Good vs Bad):
+✓ GOOD: "Deployed microservices" → "Deployed microservices using Docker and Kubernetes on AWS"
+✓ GOOD: "Built chatbot" → "Built chatbot using LangChain and RAG pipeline"
+✓ GOOD: "Automated processes" → "Automated deployment processes using Jenkins CI/CD"
+✗ BAD: "Deployed applications with various tools" (too vague, keywords buried)
+✗ BAD: "Used Docker, Kubernetes, AWS, Jenkins, Python..." (keyword stuffing)
 
 Instructions:
-1. Review each of the {total_bullets} bullets
-2. If bullet relates to a missing skill → add skill keyword
-   Example: "Deployed applications" + missing "Docker" → "Deployed applications using Docker"
-3. If bullet doesn't relate → keep EXACTLY as written
-4. ALL {total_bullets} bullets must be in output
+1. For EACH of the {len(missing_skills_sorted)} missing skills
+2. Find the MOST RELEVANT bullet in {total_bullets} bullets
+3. Enhance that bullet by adding skill naturally (see examples above)
+4. If no relevant bullet exists, add to skills array only (don't force)
+5. Keep ALL {total_bullets} original bullets (some enhanced, some unchanged)
 
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ [TASKS 4-7] PRESERVE EXACTLY (DO NOT MODIFY)                                │
@@ -253,10 +332,10 @@ Instructions:
 • All other fields: EXACT COPY
 
 ════════════════════════════════════════════════════════════════════════════════
-ORIGINAL RESUME:
+ORIGINAL RESUME (FULL - Preserve 100%):
 ════════════════════════════════════════════════════════════════════════════════
 
-{json.dumps(original_resume, indent=2)[:8000]}
+{json.dumps(original_resume, indent=2)}
 
 ════════════════════════════════════════════════════════════════════════════════
 FINAL VERIFICATION (Before you output):
