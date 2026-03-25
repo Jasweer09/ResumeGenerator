@@ -55,7 +55,7 @@ CURRENT RESUME:
 
 TASK:
 1. Add ALL {len(missing_sorted)} missing skills to technicalSkills array
-2. Add top 10 to summary: "...Expert in {missing[0]}, {missing[1]}, {missing[2]}..."
+2. Add top 10 to summary: "...Expert in {', '.join(missing_sorted[:10])}..."
 3. Enhance 10-15 bullets to mention missing skills
    Example: "Deployed services" → "Deployed services using Docker and Kubernetes"
 
