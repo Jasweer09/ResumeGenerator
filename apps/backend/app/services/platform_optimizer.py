@@ -36,32 +36,81 @@ async def optimize_for_taleo(
 
     logger.info(f"Taleo optimization: {len(matched)}/{len(jd_canonicals)} matched, adding {len(missing)} skills")
 
-    # TALEO-SPECIFIC PROMPT: Keyword-heavy, exact matching
-    prompt = f"""You are optimizing a resume specifically for TALEO ATS (80% exact keyword matching).
+    # TALEO-SPECIFIC PROMPT: Balanced - Keywords + Professionalism
+    prompt = f"""Enhance this resume for Taleo ATS while maintaining professional quality.
 
-TALEO SCORING: 80% weight on EXACT keyword matches, 20% format.
+TALEO ALGORITHM: 80% exact keyword matching, 20% format
+GOAL: Add keywords for ATS WITHOUT creating unreadable spam
 
-CRITICAL STRATEGY FOR TALEO:
-1. Add ALL missing skills to technicalSkills array (exact names!)
-2. Repeat top 10 missing skills in summary
-3. Mention top 15 in work experience bullets where relevant
-4. Use EXACT terminology (no synonyms or variations)
+MISSING SKILLS TO INTEGRATE ({len(missing_sorted)} skills):
+{chr(10).join(f"• {skill}" for skill in missing_sorted[:25])}
 
-MISSING SKILLS ({len(missing_sorted)} - ADD THESE):
-{chr(10).join(f"{i+1}. {skill.upper()}" for i, skill in enumerate(missing_sorted[:40]))}
+══════════════════════════════════════════════════════════════════════════════
+ENHANCEMENT RULES (Professional + ATS-Optimized):
+══════════════════════════════════════════════════════════════════════════════
 
+[1] TECHNICAL SKILLS ARRAY
+• Add the {len(missing_sorted[:25])} missing skills to technicalSkills array
+• Use proper case (not ALL CAPS): "Docker", not "DOCKER"
+• Simple append to existing array
+
+[2] SUMMARY (Natural skill mentions)
+• Add 5-8 missing skills NATURALLY to summary
+• Use proper grammar and professional tone
+• Example: "...specializing in LangChain-based systems with Docker and Kubernetes deployment."
+• ❌ AVOID: Keyword lists "...Expert in DOCKER, KUBERNETES, AWS, DATA ANALYSIS, AUTOMATION..."
+
+[3] WORK EXPERIENCE (Contextual integration)
+• For each missing skill, find ONE relevant bullet
+• Add skill ONCE within the bullet context
+• Example: "Deployed microservices" → "Deployed microservices using Docker containers"
+• ❌ AVOID: "Deployed using DOCKER and KUBERNETES with AWS and AUTOMATION and ACCESS CONTROL..."
+
+══════════════════════════════════════════════════════════════════════════════
+QUALITY STANDARDS (Resume must pass these):
+══════════════════════════════════════════════════════════════════════════════
+
+✓ Professional tone (no ALL CAPS keywords)
+✓ Readable by humans (hiring managers see this!)
+✓ Natural language (not keyword spam)
+✓ Each skill mentioned 1-2 times MAX (not everywhere)
+✓ Skills integrated IN context (not appended as lists)
+
+══════════════════════════════════════════════════════════════════════════════
+BAD EXAMPLES (AVOID THESE - Keyword Stuffing):
+══════════════════════════════════════════════════════════════════════════════
+
+❌ "Built platform with PYTHON, JAVA, DOCKER, KUBERNETES, AWS, AZURE, CI/CD, AUTOMATION..."
+❌ "Managed ACCESS CONTROL and DATA SECURITY and RISK MANAGEMENT and COMPLIANCE..."
+❌ Summary with 20+ keyword list: "Expert in X, Y, Z, A, B, C, D, E, F, G, H, I, J, K..."
+
+These would be rejected by human reviewers instantly!
+
+══════════════════════════════════════════════════════════════════════════════
+GOOD EXAMPLES (Professional + ATS):
+══════════════════════════════════════════════════════════════════════════════
+
+✓ "Architected cloud-native platform using Docker containers orchestrated with Kubernetes"
+✓ "Built agent systems with LangChain framework, improving response accuracy by 25%"
+✓ "Automated CI/CD pipelines using Jenkins, reducing deployment time by 40%"
+
+Skills are present for ATS, but resume remains professional!
+
+══════════════════════════════════════════════════════════════════════════════
 CURRENT RESUME:
+══════════════════════════════════════════════════════════════════════════════
+
 {str(resume_data)[:8000]}
 
-TASK:
-1. Add ALL {len(missing_sorted)} missing skills to technicalSkills array
-2. Add top 10 to summary: "...Expert in {', '.join(missing_sorted[:10])}..."
-3. Enhance 10-15 bullets to mention missing skills
-   Example: "Deployed services" → "Deployed services using Docker and Kubernetes"
+══════════════════════════════════════════════════════════════════════════════
+YOUR TASK:
+══════════════════════════════════════════════════════════════════════════════
 
-CRITICAL: Keep ALL existing content. This is ADDITION only.
+Enhance this resume to score well on Taleo WHILE remaining professional.
 
-Return enhanced resume as JSON. Focus on KEYWORD DENSITY for Taleo's exact matching algorithm."""
+Target: 75-85% ATS score + professional quality for human review
+
+Return enhanced resume as JSON. Balance keyword optimization with readability."""
 
     result = await complete_json(
         prompt=prompt,
