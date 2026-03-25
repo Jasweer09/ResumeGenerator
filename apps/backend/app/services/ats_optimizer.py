@@ -339,24 +339,22 @@ async def optimize_resume_for_platform(
 
     logger.info(f"Extracted {len(jd_skills_map)} skills with variations from job description")
 
-    # Step 3: Generate optimized resume with SECTION-BY-SECTION prompt (Option B - God Mode)
-    logger.info(f"Generating resume optimized for {target_platform.value} (section-by-section)...")
+    # Step 3: HYBRID APPROACH - Use original improve_resume (proven) + our ATS scoring
+    logger.info(f"Generating resume using ORIGINAL system + ATS optimization...")
 
-    # Use section-by-section structured prompt for better skill preservation
-    optimization_prompt = ats_prompts.generate_section_by_section_prompt(
-        original_resume=resume_data,
-        jd_skills_with_variations=jd_skills_map,
-        cached_resume_skills=resume_keywords_cached if resume_keywords_cached else {},
-        target_platform=target_platform.value,
+    # Use ORIGINAL Resume-Matcher's improve_resume (proven to work!)
+    logger.info("Using original improve_resume() - proven generation system...")
+
+    optimized_data = await improve_resume(
+        original_resume=resume_markdown,
+        job_description=job_description,
+        job_keywords=job_keywords_structured,
         language=language,
+        prompt_id='keywords',  # Use keyword-focused prompt
+        original_resume_data=resume_data,
     )
 
-    optimized_data = await complete_json(
-        prompt=optimization_prompt,
-        system_prompt="You are a precise resume enhancer. Follow section-by-section instructions exactly. "
-                      "Preserve all content not explicitly mentioned. Return valid JSON.",
-        max_tokens=12288,  # Increased for comprehensive resume
-    )
+    logger.info("Original generation complete - applying ATS-specific enhancements...")
 
     # Step 4: Score initial result
     logger.info("Scoring optimized resume across all platforms...")
