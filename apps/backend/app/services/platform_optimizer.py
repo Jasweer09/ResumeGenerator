@@ -1,6 +1,7 @@
-"""Platform-specific optimization strategies.
+"""Platform-specific optimization strategies - Enhanced for professional quality.
 
 Each ATS platform gets its own optimized approach tailored to its scoring algorithm.
+Prevents keyword stuffing while maintaining ATS optimization.
 """
 
 import logging
@@ -18,9 +19,9 @@ async def optimize_for_taleo(
 ) -> dict[str, Any]:
     """Taleo-specific optimization (80% exact keywords, 20% format).
 
-    Strategy: Maximize exact keyword matching through direct addition and repetition.
+    Strategy: Add keywords for ATS while maintaining professional readability.
     """
-    # Find missing skills
+    # Find missing skills using set math
     jd_canonicals = set(jd_skills.keys())
     resume_canonicals = set(resume_skills.keys())
 
@@ -32,90 +33,106 @@ async def optimize_for_taleo(
                 break
 
     missing = jd_canonicals - matched
-    missing_sorted = sorted(list(missing))
+    missing_sorted = sorted(list(missing))[:30]  # Top 30 missing skills
 
-    logger.info(f"Taleo optimization: {len(matched)}/{len(jd_canonicals)} matched, adding {len(missing)} skills")
+    logger.info(f"Taleo: {len(matched)}/{len(jd_canonicals)} matched, adding {len(missing_sorted)} skills")
 
-    # TALEO-SPECIFIC PROMPT: Balanced - Keywords + Professionalism
-    prompt = f"""Enhance this resume for Taleo ATS while maintaining professional quality.
+    # Get current resume stats
+    current_tech_skills = resume_data.get('additional', {}).get('technicalSkills', [])
 
-TALEO ALGORITHM: 80% exact keyword matching, 20% format
-GOAL: Add keywords for ATS WITHOUT creating unreadable spam
-
-MISSING SKILLS TO INTEGRATE ({len(missing_sorted)} skills):
-{chr(10).join(f"• {skill}" for skill in missing_sorted[:25])}
+    # ENHANCED TALEO PROMPT: Professional + ATS-Optimized
+    prompt = f"""Enhance this resume for Taleo ATS (80% keyword matching) while maintaining professional quality.
 
 ══════════════════════════════════════════════════════════════════════════════
-ENHANCEMENT RULES (Professional + ATS-Optimized):
+CRITICAL INSTRUCTIONS - READ CAREFULLY:
 ══════════════════════════════════════════════════════════════════════════════
 
-[1] TECHNICAL SKILLS ARRAY
-• Add the {len(missing_sorted[:25])} missing skills to technicalSkills array
-• Use proper case (not ALL CAPS): "Docker", not "DOCKER"
-• Simple append to existing array
-
-[2] SUMMARY (Natural skill mentions)
-• Add 5-8 missing skills NATURALLY to summary
-• Use proper grammar and professional tone
-• Example: "...specializing in LangChain-based systems with Docker and Kubernetes deployment."
-• ❌ AVOID: Keyword lists "...Expert in DOCKER, KUBERNETES, AWS, DATA ANALYSIS, AUTOMATION..."
-
-[3] WORK EXPERIENCE (Contextual integration)
-• For each missing skill, find ONE relevant bullet
-• Add skill ONCE within the bullet context
-• Example: "Deployed microservices" → "Deployed microservices using Docker containers"
-• ❌ AVOID: "Deployed using DOCKER and KUBERNETES with AWS and AUTOMATION and ACCESS CONTROL..."
+USE ONLY THESE {len(missing_sorted)} SKILLS (Do NOT add other keywords):
+{chr(10).join(f"{i+1}. {skill}" for i, skill in enumerate(missing_sorted))}
 
 ══════════════════════════════════════════════════════════════════════════════
-QUALITY STANDARDS (Resume must pass these):
+ENHANCEMENT TASKS:
 ══════════════════════════════════════════════════════════════════════════════
 
-✓ Professional tone (no ALL CAPS keywords)
-✓ Readable by humans (hiring managers see this!)
-✓ Natural language (not keyword spam)
-✓ Each skill mentioned 1-2 times MAX (not everywhere)
-✓ Skills integrated IN context (not appended as lists)
+[TASK 1] Add to Technical Skills Array
+• Simply append the {len(missing_sorted)} skills above to existing array
+• Use proper case: "Docker" (not "DOCKER")
+• Result: {len(current_tech_skills)} + {len(missing_sorted)} = {len(current_tech_skills) + len(missing_sorted)} total skills
+
+[TASK 2] Enhance Summary (Write in SENTENCES, not lists!)
+• Add 5-8 skills from above list in COMPLETE SENTENCES
+• Group related skills: "Azure ML platforms (Databricks, AI Foundry, AI Search)"
+• Use professional phrasing
+
+GOOD Examples:
+✓ "Specializing in insurance analytics and distribution optimization using Azure ML platforms including Databricks and AI Foundry."
+✓ "Expert in feature engineering and MLOps with strong business acumen for sales optimization."
+
+BAD Examples (AVOID):
+✗ "Expert in distribution optimization, channel optimization, competition optimization, insurance domain, business acumen, feature store, Azure AI Foundry, AI Search..." (list spam!)
+
+Rule: Write in sentences with max 3 skills per sentence. Use "and", "with", "including".
+
+[TASK 3] Enhance Work Experience (Max 3 skills per bullet!)
+• For EACH missing skill, find ONE relevant bullet
+• Add skill IN CONTEXT (not list-appended)
+• MAX 3 SKILLS PER BULLET (critical!)
+
+GOOD Examples:
+✓ "Deployed ML models using Azure Kubernetes Service with MLOps automation"
+✓ "Built feature store for standardized data models across insurance products"
+✓ "Optimized distribution channels using advanced analytics and business intelligence"
+
+BAD Examples (AVOID):
+✗ "Deployed using Azure AI Foundry and Azure Kubernetes Service and feature store and MLOps and standardized data models and business acumen and distribution optimization..." (stuffed!)
+✗ "Built platform with Azure AI Search, Azure Cognitive Search, cloud computing, seamless integration, system integration, distribution analytics..." (too many!)
+
+Rule: Each bullet can mention MAX 3 skills. More = spam.
 
 ══════════════════════════════════════════════════════════════════════════════
-BAD EXAMPLES (AVOID THESE - Keyword Stuffing):
+WRITING STYLE RULES (Mandatory):
 ══════════════════════════════════════════════════════════════════════════════
 
-❌ "Built platform with PYTHON, JAVA, DOCKER, KUBERNETES, AWS, AZURE, CI/CD, AUTOMATION..."
-❌ "Managed ACCESS CONTROL and DATA SECURITY and RISK MANAGEMENT and COMPLIANCE..."
-❌ Summary with 20+ keyword list: "Expert in X, Y, Z, A, B, C, D, E, F, G, H, I, J, K..."
-
-These would be rejected by human reviewers instantly!
-
-══════════════════════════════════════════════════════════════════════════════
-GOOD EXAMPLES (Professional + ATS):
-══════════════════════════════════════════════════════════════════════════════
-
-✓ "Architected cloud-native platform using Docker containers orchestrated with Kubernetes"
-✓ "Built agent systems with LangChain framework, improving response accuracy by 25%"
-✓ "Automated CI/CD pipelines using Jenkins, reducing deployment time by 40%"
-
-Skills are present for ATS, but resume remains professional!
+✓ COMPLETE SENTENCES: No comma-separated keyword lists
+✓ PROFESSIONAL TONE: Sounds like a real resume
+✓ CONTEXTUAL: Skills embedded in descriptions, not listed
+✓ GROUPED: Related skills together: "Azure ML stack (Databricks, AI Foundry)"
+✓ PROPER CASE: "Docker" not "DOCKER"
+✓ MAX 3/BULLET: Never more than 3 skills per bullet
+✓ USE ONLY PROVIDED LIST: Don't add keywords not in the {len(missing_sorted)} skills above
 
 ══════════════════════════════════════════════════════════════════════════════
 CURRENT RESUME:
 ══════════════════════════════════════════════════════════════════════════════
 
-{str(resume_data)[:8000]}
+{str(resume_data)}
 
 ══════════════════════════════════════════════════════════════════════════════
-YOUR TASK:
+BEFORE RETURNING - VERIFY:
 ══════════════════════════════════════════════════════════════════════════════
 
-Enhance this resume to score well on Taleo WHILE remaining professional.
+Self-Check Questions:
+1. Did I use ONLY skills from the {len(missing_sorted)} skills list above?
+2. Are summary and bullets written in complete SENTENCES (not lists)?
+3. Did I limit to MAX 3 skills per bullet?
+4. Would a hiring manager find this professional (not spammy)?
+5. Did I avoid repeating similar skills (e.g., "insurance domain, insurance industry, insurance sector")?
 
-Target: 75-85% ATS score + professional quality for human review
+If NO to ANY: Fix before returning!
 
-Return enhanced resume as JSON. Balance keyword optimization with readability."""
+══════════════════════════════════════════════════════════════════════════════
+OUTPUT:
+══════════════════════════════════════════════════════════════════════════════
+
+Return enhanced resume as JSON.
+
+TARGET: 75-85% Taleo ATS score + professional quality for human reviewers.
+Balance keywords for machines, readability for humans."""
 
     result = await complete_json(
         prompt=prompt,
-        system_prompt="You are a Taleo ATS expert. Maximize exact keyword matches. Return valid JSON.",
-        max_tokens=12288
+        system_prompt="You are a professional resume writer optimizing for Taleo ATS. Write in complete sentences. Avoid keyword stuffing. Return valid JSON.",
+        max_tokens=16384  # Increased for full resume
     )
 
     return result
@@ -130,45 +147,41 @@ async def optimize_for_greenhouse(
 
     Strategy: Achievement narratives with natural skill integration.
     """
-    missing_skills = list(set(jd_skills.keys()) - set(resume_data.get('additional', {}).get('technicalSkills', [])))[:20]
+    # Calculate missing skills
+    jd_canonicals = set(jd_skills.keys())
+    resume_skills = set(resume_data.get('additional', {}).get('technicalSkills', []))
+    missing = list(jd_canonicals - resume_skills)[:20]
 
-    logger.info(f"Greenhouse optimization: Focus on semantic storytelling with {len(missing_skills)} skills")
+    logger.info(f"Greenhouse: Adding {len(missing)} skills with semantic storytelling")
 
-    # GREENHOUSE-SPECIFIC PROMPT: Semantic, human-focused
-    prompt = f"""You are optimizing a resume for GREENHOUSE ATS (50% semantic, human-focused).
+    prompt = f"""Enhance this resume for GREENHOUSE ATS (human-focused, storytelling approach).
 
-GREENHOUSE SCORING: 50% semantic similarity + 30% format + 20% human review.
-Greenhouse prioritizes READABLE, COMPELLING narratives over keyword stuffing.
+GREENHOUSE SCORING: 50% semantic + 30% format + 20% human review
+Focus: READABLE narratives with embedded keywords (not keyword lists!)
 
-STRATEGY FOR GREENHOUSE:
-1. Integrate skills through achievement stories
-2. Show IMPACT and business value
-3. Write for humans first, ATS second
-4. Natural language with embedded keywords
+SKILLS TO INTEGRATE (Use ONLY these {len(missing)} skills):
+{chr(10).join(f"{i+1}. {skill}" for i, skill in enumerate(missing))}
 
-SKILLS TO INTEGRATE ({len(missing_skills)}):
-{chr(10).join(f"• {skill}" for skill in missing_skills)}
+ENHANCEMENT APPROACH:
+• Write achievement narratives with metrics and impact
+• Integrate skills NATURALLY in context
+• Professional tone for human reviewers
 
-JOB CONTEXT:
-{job_description[:1000]}
+GOOD Example:
+✓ "Architected LangChain-based agent platform with MCP protocol, improving response accuracy by 35% and serving 10K users"
+
+BAD Example:
+✗ "Built platform with LangChain and MCP protocol and RAG and vector databases and Azure AI and feature store..." (stuffing)
 
 CURRENT RESUME:
-{str(resume_data)[:8000]}
+{str(resume_data)}
 
-TASK - Enhance with STORY-DRIVEN approach:
-1. Add skills to array naturally
-2. Enhance summary with role-relevant skills: "Gen AI Engineer specializing in LangChain-based agent systems..."
-3. Transform bullets into achievement narratives:
-   Before: "Built chatbot platform"
-   After: "Architected chatbot platform using LangChain and RAG pipeline, serving 10K users with 95% satisfaction"
-
-Focus on: Impact, metrics, context, natural language.
-Return enhanced resume as JSON."""
+Return enhanced resume as JSON with professional, story-driven content."""
 
     result = await complete_json(
         prompt=prompt,
-        system_prompt="You are a Greenhouse optimization expert. Write compelling narratives with embedded keywords. Return valid JSON.",
-        max_tokens=12288
+        system_prompt="You are a Greenhouse expert. Write compelling, readable narratives. Avoid keyword spam. Return valid JSON.",
+        max_tokens=16384
     )
 
     return result
@@ -180,37 +193,35 @@ async def optimize_for_icims(
 ) -> dict[str, Any]:
     """iCIMS-specific optimization (60% semantic, 40% format).
 
-    Strategy: Contextual skill demonstration.
+    Strategy: Contextual demonstrations with professional quality.
     """
-    missing_skills = list(set(jd_skills.keys()))[:25]
+    jd_canonicals = set(jd_skills.keys())
+    resume_skills = set(resume_data.get('additional', {}).get('technicalSkills', []))
+    missing = list(jd_canonicals - resume_skills)[:25]
 
-    # iCIMS-SPECIFIC PROMPT: Semantic context
-    prompt = f"""You are optimizing for iCIMS ATS (60% semantic understanding).
+    logger.info(f"iCIMS: Adding {len(missing)} skills with semantic context")
 
-iCIMS SCORING: 60% semantic similarity (context matters!), 40% format.
-iCIMS is FORGIVING - values demonstrating skills in context over keyword count.
+    prompt = f"""Enhance for iCIMS ATS (60% semantic understanding).
 
-STRATEGY FOR iCIMS:
-• Show HOW skills were used, not just that you have them
-• Context-rich descriptions with embedded keywords
-• Achievement-oriented with technical details
+SKILLS TO ADD (Use ONLY these {len(missing)} skills):
+{chr(10).join(f"{i+1}. {skill}" for i, skill in enumerate(missing))}
 
-SKILLS TO INTEGRATE:
-{chr(10).join(f"• {skill}" for skill in missing_skills)}
+APPROACH:
+• Show skills through achievements with context
+• Integrate naturally in complete sentences
+• Professional, readable style
+
+RULE: MAX 3 skills per bullet. Write in sentences, not lists.
 
 CURRENT RESUME:
-{str(resume_data)[:8000]}
+{str(resume_data)}
 
-TASK:
-Enhance bullets to DEMONSTRATE skills:
-Example: "Developed microservices architecture using Docker, Kubernetes, and Python, processing 1M requests/day"
-
-Return enhanced resume as JSON with context-rich skill demonstrations."""
+Return enhanced resume as JSON."""
 
     result = await complete_json(
         prompt=prompt,
-        system_prompt="You are an iCIMS expert. Demonstrate skills through context. Return valid JSON.",
-        max_tokens=12288
+        system_prompt="You are an iCIMS expert. Demonstrate skills professionally. Avoid keyword spam. Return valid JSON.",
+        max_tokens=16384
     )
 
     return result
@@ -230,7 +241,7 @@ async def optimize_for_platform_specific(
     Each platform gets its own optimization strategy tailored to its algorithm.
     """
 
-    logger.info(f"Using platform-specific optimizer for {target_platform.value}...")
+    logger.info(f"Routing to {target_platform.value}-specific optimizer...")
 
     if target_platform == ATSPlatform.TALEO:
         return await optimize_for_taleo(resume_data, jd_skills_map, resume_skills_map)
@@ -242,10 +253,10 @@ async def optimize_for_platform_specific(
         return await optimize_for_icims(resume_data, jd_skills_map)
 
     else:
-        # For Workday, Lever, SuccessFactors: Use balanced approach (original improve_resume)
+        # For Workday, Lever, SuccessFactors: Use original system
         from app.services.improver import improve_resume, extract_job_keywords
 
-        logger.info(f"Using balanced approach for {target_platform.value}")
+        logger.info(f"Using original improve_resume for {target_platform.value}")
 
         job_keywords = await extract_job_keywords(job_description)
 
