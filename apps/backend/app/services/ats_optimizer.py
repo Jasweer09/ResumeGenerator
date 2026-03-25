@@ -339,22 +339,23 @@ async def optimize_resume_for_platform(
 
     logger.info(f"Extracted {len(jd_skills_map)} skills with variations from job description")
 
-    # Step 3: HYBRID APPROACH - Use original improve_resume (proven) + our ATS scoring
-    logger.info(f"Generating resume using ORIGINAL system + ATS optimization...")
+    # Step 3: PLATFORM-SPECIFIC OPTIMIZATION
+    # Route to specialized optimizer based on detected platform
+    logger.info(f"Using platform-specific optimization for {target_platform.value}...")
 
-    # Use ORIGINAL Resume-Matcher's improve_resume (proven to work!)
-    logger.info("Using original improve_resume() - proven generation system...")
+    from app.services import platform_optimizer
 
-    optimized_data = await improve_resume(
-        original_resume=resume_markdown,
+    optimized_data = await platform_optimizer.optimize_for_platform_specific(
+        resume_data=resume_data,
+        resume_markdown=resume_markdown,
         job_description=job_description,
-        job_keywords=job_keywords_structured,
+        jd_skills_map=jd_skills_map,
+        resume_skills_map=resume_keywords_cached if resume_keywords_cached else {},
+        target_platform=target_platform,
         language=language,
-        prompt_id='keywords',  # Use keyword-focused prompt
-        original_resume_data=resume_data,
     )
 
-    logger.info("Original generation complete - applying ATS-specific enhancements...")
+    logger.info(f"Platform-specific optimization for {target_platform.value} complete")
 
     # Step 4: Score initial result
     logger.info("Scoring optimized resume across all platforms...")
