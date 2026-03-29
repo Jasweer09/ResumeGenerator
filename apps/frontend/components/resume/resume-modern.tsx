@@ -393,22 +393,51 @@ const AdditionalSection: React.FC<{
     <div className={baseStyles['resume-section']}>
       <h3 className={styles['section-title-accent']}>{displayName}</h3>
       <div className={`${baseStyles['resume-stack']} ${baseStyles['resume-text-sm']}`}>
-        {technicalSkills.length > 0 && (
+        {/* Display new categorized skill fields */}
+        {Object.keys(additional || {}).some(key =>
+          key !== 'certificationsTraining' &&
+          key !== 'languages' &&
+          key !== 'awards' &&
+          key !== 'technicalSkills' &&
+          Array.isArray(additional?.[key])
+        ) && (
           <div className="space-y-1">
             <span className="font-bold">{mergedLabels.technicalSkills}</span>
-            {technicalSkills.map((skillItem, idx) => {
-              if (skillItem.includes(':')) {
-                const [category, items] = skillItem.split(':', 2);
+            {Object.entries(additional || {})
+              .filter(([key]) =>
+                key !== 'certificationsTraining' &&
+                key !== 'languages' &&
+                key !== 'awards' &&
+                key !== 'technicalSkills'
+              )
+              .map(([key, value]) => {
+                if (!Array.isArray(value) || value.length === 0) return null;
+
+                const categoryName = key
+                  .replace(/([A-Z])/g, ' $1')
+                  .replace(/^./, str => str.toUpperCase())
+                  .trim();
+
                 return (
-                  <div key={idx} className="ml-4">
-                    <span className="font-semibold">{category}:</span>{' '}
-                    <span>{items.trim()}</span>
+                  <div key={key} className="flex gap-4">
+                    <span className="font-semibold w-48 shrink-0">{categoryName}</span>
+                    <span>{value.join(', ')}</span>
                   </div>
                 );
-              } else {
-                return <span key={idx}>{skillItem}{idx < technicalSkills.length - 1 ? ', ' : ''}</span>;
-              }
-            })}
+              })}
+          </div>
+        )}
+
+        {/* Fallback for old format */}
+        {technicalSkills.length > 0 && !Object.keys(additional || {}).some(key =>
+          key !== 'certificationsTraining' &&
+          key !== 'languages' &&
+          key !== 'awards' &&
+          key !== 'technicalSkills'
+        ) && (
+          <div className="flex">
+            <span className="font-bold w-32 shrink-0">{mergedLabels.technicalSkills}</span>
+            <span>{technicalSkills.join(', ')}</span>
           </div>
         )}
         {languages.length > 0 && (
