@@ -107,25 +107,39 @@ Summary Rewrite:
 • Write in professional SENTENCES
 • Example: "AI Engineer with 5 years specializing in LangChain-based systems using Docker and Kubernetes for cloud deployment."
 
-Bullet Rewrite (CRITICAL - Length Limit!):
+Bullet Rewrite (CRITICAL - Length Range 13-15 Words!):
 • Keep the MEANING and ACHIEVEMENT
 • Rewrite TEXT to include relevant missing skills (max 3 per bullet)
-• MAXIMUM 15 WORDS PER BULLET (critical for readability!)
+• WORD COUNT: 13-15 words per bullet (not 12, not 16 - count carefully!)
 • Be concise, impactful, professional
-• Examples:
-  Before: "Built chatbot platform"
-  After: "Architected chatbot platform using LangChain and RAG pipeline" (10 words ✓)
-  ✗ BAD: "Architected multi-tenant AI chatbot SaaS platform using software engineering best practices, agent development frameworks including LangChain AI frameworks, and large language models..." (42 words - TOO LONG!)
 
-Skills Array (Maintain Categories!):
-• Add {len(missing_sorted)} missing skills to EXISTING categories
-• DO NOT create one giant unsegregated list
-• If skills have categories (Languages, Frameworks, etc.), maintain them
-• Example structure:
-  "Programming Languages: Python, TypeScript, JavaScript
-   AI/ML: LangChain, OpenAI API, Anthropic API
-   Cloud: AWS, Azure, GCP"
-• If no categories exist, create logical groupings
+EXAMPLES (Good - 13-15 words):
+✓ "Architected chatbot platform using LangChain framework and RAG pipeline for intelligent responses" (13 words)
+✓ "Deployed ML models with Docker containers on Azure Kubernetes Service achieving uptime" (14 words)
+✓ "Built feature engineering pipeline using Azure AI Foundry improving model accuracy significantly" (15 words)
+
+✗ BAD (Too short - 10 words):
+"Built platform using LangChain and RAG with Docker" (10 words - needs more context)
+
+✗ BAD (Too long - 25 words):
+"Architected multi-tenant AI chatbot SaaS platform using software engineering best practices and LangChain AI frameworks with distributed systems" (25 words - too verbose!)
+
+Skills Array (SEPARATE CATEGORIZED SECTIONS!):
+• Organize skills into SEPARATE category arrays (not one combined list!)
+• Output structure:
+  {{
+    "programmingLanguages": ["Python", "TypeScript", "Java"],
+    "mlAI": ["LangChain", "RAG", "OpenAI API"],
+    "cloudPlatforms": ["AWS", "Azure", "GCP"],
+    "databases": ["MongoDB", "PostgreSQL", "Pinecone"],
+    "devOps": ["Docker", "Kubernetes", "Git"]
+  }}
+• Add ONLY skills relevant to THIS job (no spam!)
+• Each category: 5-15 items (not 50!)
+• Use standard category names
+
+CRITICAL: Do NOT put all skills in one "technicalSkills" array.
+Create separate arrays per category for clean display.
 
 ════════════════════════════════════════════════════════════════════════════════
 QUALITY RULES (Mandatory - MUST Follow):
