@@ -107,27 +107,39 @@ Summary Rewrite:
 • Write in professional SENTENCES
 • Example: "AI Engineer with 5 years specializing in LangChain-based systems using Docker and Kubernetes for cloud deployment."
 
-Bullet Rewrite:
+Bullet Rewrite (CRITICAL - Length Limit!):
 • Keep the MEANING and ACHIEVEMENT
 • Rewrite TEXT to include relevant missing skills (max 3 per bullet)
-• Example:
+• MAXIMUM 15 WORDS PER BULLET (critical for readability!)
+• Be concise, impactful, professional
+• Examples:
   Before: "Built chatbot platform"
-  After: "Architected chatbot platform using LangChain framework with RAG pipeline integration"
+  After: "Architected chatbot platform using LangChain and RAG pipeline" (10 words ✓)
+  ✗ BAD: "Architected multi-tenant AI chatbot SaaS platform using software engineering best practices, agent development frameworks including LangChain AI frameworks, and large language models..." (42 words - TOO LONG!)
 
-Skills Array:
-• Add ALL {len(missing_sorted)} missing skills to array
-• Use proper case
+Skills Array (Maintain Categories!):
+• Add {len(missing_sorted)} missing skills to EXISTING categories
+• DO NOT create one giant unsegregated list
+• If skills have categories (Languages, Frameworks, etc.), maintain them
+• Example structure:
+  "Programming Languages: Python, TypeScript, JavaScript
+   AI/ML: LangChain, OpenAI API, Anthropic API
+   Cloud: AWS, Azure, GCP"
+• If no categories exist, create logical groupings
 
 ════════════════════════════════════════════════════════════════════════════════
-QUALITY RULES (Mandatory):
+QUALITY RULES (Mandatory - MUST Follow):
 ════════════════════════════════════════════════════════════════════════════════
 
 ✓ Professional tone (would impress hiring manager)
 ✓ Complete sentences (no keyword lists)
 ✓ MAX 3 skills per bullet
+✓ MAX 15 WORDS per bullet (concise, impactful!)
 ✓ Natural integration (reads smoothly)
 ✓ Same bullet count as original
 ✓ Dates/companies/titles unchanged
+✓ CERTIFICATES: Copy EXACTLY, do NOT add new ones (fabrication = fraud!)
+✓ Skills: Maintain categories (Languages, Frameworks, Tools, etc.)
 
 ════════════════════════════════════════════════════════════════════════════════
 JOB DESCRIPTION (For context):
