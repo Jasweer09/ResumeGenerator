@@ -128,11 +128,37 @@ const ItemListSectionContent: React.FC<{ items: CustomSectionItem[] }> = ({ item
 };
 
 /**
- * String List Section Content (like Skills)
+ * String List Section Content (like Skills) - Enhanced for categories
  */
 const StringListSectionContent: React.FC<{ strings: string[] }> = ({ strings }) => {
   if (strings.length === 0) return null;
 
+  // Check if skills have categories (e.g., "Programming Languages: Python, Java")
+  const hasCategories = strings.some(s => s.includes(':'));
+
+  if (hasCategories) {
+    // Display with category formatting (each category on new line)
+    return (
+      <div className={baseStyles['resume-text-sm']}>
+        {strings.map((skillLine, idx) => {
+          if (skillLine.includes(':')) {
+            const [category, items] = skillLine.split(':', 2);
+            return (
+              <div key={idx} className="mb-1">
+                <span className="font-bold">{category}:</span>{' '}
+                <span>{items.trim()}</span>
+              </div>
+            );
+          } else {
+            // Fallback for non-categorized items
+            return <span key={idx}>{skillLine}, </span>;
+          }
+        })}
+      </div>
+    );
+  }
+
+  // Original behavior for non-categorized skills (backward compatibility)
   return <div className={baseStyles['resume-text-sm']}>{strings.join(', ')}</div>;
 };
 
