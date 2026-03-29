@@ -1,7 +1,11 @@
-"""Platform-specific optimization strategies - Enhanced for professional quality.
+"""Platform-specific optimization strategies - Selective Rewrite Approach.
 
-Each ATS platform gets its own optimized approach tailored to its scoring algorithm.
-Prevents keyword stuffing while maintaining ATS optimization.
+Approach 3: Preserve structure and facts, rewrite descriptions for keyword integration.
+- Preserves: Dates, companies, titles, education, bullet count
+- Rewrites: Bullet TEXT, summary TEXT (for natural keywords)
+- Adds: Missing skills to array
+
+Each platform gets specific guidance on HOW to rewrite for its algorithm.
 """
 
 import logging
@@ -12,18 +16,48 @@ from app.schemas.ats_models import ATSPlatform
 logger = logging.getLogger(__name__)
 
 
-async def optimize_for_taleo(
+# Platform-specific hints (injected at start and end of prompt - avoid Lost in the Middle)
+PLATFORM_HINTS = {
+    ATSPlatform.TALEO: {
+        "hint": "Taleo scores 80% on EXACT keyword matching. Use job description terms verbatim. Repeat key skills 2x.",
+        "focus": "exact keywords, direct skill mentions"
+    },
+    ATSPlatform.GREENHOUSE: {
+        "hint": "Greenhouse scores 50% semantic + 20% human review. Write compelling achievement narratives with embedded keywords.",
+        "focus": "storytelling, impact, metrics"
+    },
+    ATSPlatform.ICIMS: {
+        "hint": "iCIMS scores 60% on semantic context. Demonstrate HOW you used skills through detailed descriptions.",
+        "focus": "contextual demonstrations"
+    },
+    ATSPlatform.WORKDAY: {
+        "hint": "Workday scores 60% keywords + 40% semantic. Balance exact terms with contextual usage and metrics.",
+        "focus": "balanced keywords + context"
+    },
+    ATSPlatform.LEVER: {
+        "hint": "Lever uses stemming. Use skill variations: 'manage/managed/managing', 'Python/Python dev'.",
+        "focus": "word variations, different forms"
+    },
+    ATSPlatform.SUCCESSFACTORS: {
+        "hint": "SuccessFactors uses canonical matching. Use official names: 'Kubernetes' not 'K8s', 'JavaScript' not 'JS'.",
+        "focus": "canonical names, official terms"
+    }
+}
+
+
+def create_selective_rewrite_prompt(
     resume_data: dict[str, Any],
     jd_skills: dict[str, set[str]],
     resume_skills: dict[str, set[str]],
-) -> dict[str, Any]:
-    """Taleo-specific optimization (80% exact keywords, 20% format).
+    platform: ATSPlatform,
+    job_description: str,
+) -> str:
+    """Create selective rewrite prompt with platform-specific guidance.
 
-    Strategy: Add keywords for ATS while maintaining professional readability.
+    Approach 3: Preserve facts, rewrite descriptions for keyword integration.
     """
-    # Find missing skills using set math
+    # Calculate missing skills
     jd_canonicals = set(jd_skills.keys())
-    resume_canonicals = set(resume_skills.keys())
 
     matched = set()
     for jd_canon, jd_vars in jd_skills.items():
@@ -33,15 +67,125 @@ async def optimize_for_taleo(
                 break
 
     missing = jd_canonicals - matched
-    missing_sorted = sorted(list(missing))[:30]  # Top 30 missing skills
+    missing_sorted = sorted(list(missing))[:25]  # Top 25
 
-    logger.info(f"Taleo: {len(matched)}/{len(jd_canonicals)} matched, adding {len(missing_sorted)} skills")
+    platform_info = PLATFORM_HINTS.get(platform, PLATFORM_HINTS[ATSPlatform.TALEO])
 
-    # Get current resume stats
-    current_tech_skills = resume_data.get('additional', {}).get('technicalSkills', [])
+    prompt = f"""Enhance this resume using SELECTIVE REWRITE approach for {platform.value.upper()} ATS.
 
-    # ENHANCED TALEO PROMPT: Professional + ATS-Optimized
-    prompt = f"""Enhance this resume for Taleo ATS (80% keyword matching) while maintaining professional quality.
+════════════════════════════════════════════════════════════════════════════════
+🎯 PLATFORM STRATEGY: {platform_info['hint']}
+════════════════════════════════════════════════════════════════════════════════
+
+CRITICAL APPROACH - SELECTIVE REWRITE:
+
+PRESERVE EXACTLY (Never change):
+✓ All dates and years fields (copy verbatim)
+✓ Company names
+✓ Job titles
+✓ Education details
+✓ Bullet count (same number of bullets per job)
+✓ Section structure
+
+REWRITE (For keyword integration):
+✓ Bullet TEXT (rewrite descriptions to include keywords naturally)
+✓ Summary TEXT (rewrite to include top skills)
+✓ Add to technicalSkills array
+
+════════════════════════════════════════════════════════════════════════════════
+MISSING SKILLS TO INTEGRATE ({len(missing_sorted)} skills - use ONLY these):
+════════════════════════════════════════════════════════════════════════════════
+
+{chr(10).join(f"{i+1}. {skill}" for i, skill in enumerate(missing_sorted))}
+
+════════════════════════════════════════════════════════════════════════════════
+REWRITING GUIDELINES (Focus: {platform_info['focus']}):
+════════════════════════════════════════════════════════════════════════════════
+
+Summary Rewrite:
+• Keep core message, enhance with 5-8 missing skills
+• Write in professional SENTENCES
+• Example: "AI Engineer with 5 years specializing in LangChain-based systems using Docker and Kubernetes for cloud deployment."
+
+Bullet Rewrite:
+• Keep the MEANING and ACHIEVEMENT
+• Rewrite TEXT to include relevant missing skills (max 3 per bullet)
+• Example:
+  Before: "Built chatbot platform"
+  After: "Architected chatbot platform using LangChain framework with RAG pipeline integration"
+
+Skills Array:
+• Add ALL {len(missing_sorted)} missing skills to array
+• Use proper case
+
+════════════════════════════════════════════════════════════════════════════════
+QUALITY RULES (Mandatory):
+════════════════════════════════════════════════════════════════════════════════
+
+✓ Professional tone (would impress hiring manager)
+✓ Complete sentences (no keyword lists)
+✓ MAX 3 skills per bullet
+✓ Natural integration (reads smoothly)
+✓ Same bullet count as original
+✓ Dates/companies/titles unchanged
+
+════════════════════════════════════════════════════════════════════════════════
+JOB DESCRIPTION (For context):
+════════════════════════════════════════════════════════════════════════════════
+
+{job_description[:1500]}
+
+════════════════════════════════════════════════════════════════════════════════
+ORIGINAL RESUME:
+════════════════════════════════════════════════════════════════════════════════
+
+{str(resume_data)}
+
+════════════════════════════════════════════════════════════════════════════════
+🎯 PLATFORM REMINDER: {platform_info['hint']}
+════════════════════════════════════════════════════════════════════════════════
+
+Output enhanced resume as JSON. Balance ATS optimization with professional quality."""
+
+    return prompt
+
+
+async def optimize_for_taleo(
+    resume_data: dict[str, Any],
+    jd_skills: dict[str, set[str]],
+    resume_skills: dict[str, set[str]],
+    job_description: str = "",
+) -> dict[str, Any]:
+    """Taleo-specific optimization using selective rewrite approach.
+
+    Preserves structure and facts, rewrites descriptions for keyword integration.
+    """
+    logger.info("Taleo: Using selective rewrite approach...")
+
+    prompt = create_selective_rewrite_prompt(
+        resume_data=resume_data,
+        jd_skills=jd_skills,
+        resume_skills=resume_skills,
+        platform=ATSPlatform.TALEO,
+        job_description=job_description,
+    )
+
+    result = await complete_json(
+        prompt=prompt,
+        system_prompt="You are a professional resume writer. Preserve structure, rewrite descriptions for keyword integration. Return valid JSON.",
+        max_tokens=16384
+    )
+
+    return result
+
+
+async def optimize_for_greenhouse_selective(
+    resume_data: dict[str, Any],
+    jd_skills: dict[str, set[str]],
+    resume_skills: dict[str, set[str]],
+    job_description: str,
+) -> dict[str, Any]:
+    """Greenhouse optimization using selective rewrite.
 
 ══════════════════════════════════════════════════════════════════════════════
 CRITICAL INSTRUCTIONS - READ CAREFULLY:
@@ -244,13 +388,14 @@ async def optimize_for_platform_specific(
     logger.info(f"Routing to {target_platform.value}-specific optimizer...")
 
     if target_platform == ATSPlatform.TALEO:
-        return await optimize_for_taleo(resume_data, jd_skills_map, resume_skills_map)
+        return await optimize_for_taleo(resume_data, jd_skills_map, resume_skills_map, job_description)
 
     elif target_platform == ATSPlatform.GREENHOUSE:
-        return await optimize_for_greenhouse(resume_data, jd_skills_map, job_description)
+        return await optimize_for_greenhouse_selective(resume_data, jd_skills_map, resume_skills_map, job_description)
 
     elif target_platform == ATSPlatform.ICIMS:
-        return await optimize_for_icims(resume_data, jd_skills_map)
+        prompt = create_selective_rewrite_prompt(resume_data, jd_skills_map, resume_skills_map, target_platform, job_description)
+        return await complete_json(prompt, "Professional resume writer. Preserve structure, rewrite for keywords. Return JSON.", 16384)
 
     else:
         # For Workday, Lever, SuccessFactors: Use original system
