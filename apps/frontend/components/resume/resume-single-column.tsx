@@ -392,9 +392,23 @@ const AdditionalSection: React.FC<{
       <h3 className={baseStyles['resume-section-title']}>{displayName}</h3>
       <div className={`${baseStyles['resume-stack']} ${baseStyles['resume-text-sm']}`}>
         {technicalSkills.length > 0 && (
-          <div className="flex">
-            <span className="font-bold w-32 shrink-0">{mergedLabels.technicalSkills}</span>
-            <span>{technicalSkills.join(', ')}</span>
+          <div className="space-y-1">
+            <span className="font-bold">{mergedLabels.technicalSkills}</span>
+            {technicalSkills.map((skillItem, idx) => {
+              // Check if this item has a category (contains ":")
+              if (skillItem.includes(':')) {
+                const [category, items] = skillItem.split(':', 2);
+                return (
+                  <div key={idx} className="ml-4">
+                    <span className="font-semibold">{category}:</span>{' '}
+                    <span>{items.trim()}</span>
+                  </div>
+                );
+              } else {
+                // Non-categorized skill - display inline
+                return <span key={idx}>{skillItem}{idx < technicalSkills.length - 1 ? ', ' : ''}</span>;
+              }
+            })}
           </div>
         )}
         {languages.length > 0 && (
